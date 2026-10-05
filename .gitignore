@@ -1,0 +1,17 @@
+# Build and object files
+Debug/
+Release/
+*.o
+*.ls
+*.elf
+*.lkf
+*.map
+*.s19
+*.sm8
+
+# STVD local user files
+*.wed
+
+# Temporary and backup files
+*~
+*.bak

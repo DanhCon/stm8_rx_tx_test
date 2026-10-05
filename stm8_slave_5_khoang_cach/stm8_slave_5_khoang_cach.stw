@@ -1,0 +1,12 @@
+;	STMicroelectronics Workspace file
+
+[Version]
+Keyword=ST7Workspace-V0.7
+
+[Project0]
+Filename=stm8_slave_khoang_cach.stp
+Dependencies=
+[Options]
+ActiveProject=stm8_slave_khoang_cach
+ActiveConfig=Debug
+AddSortedElements=1
