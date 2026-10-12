@@ -195,6 +195,21 @@
 
 ---
 
+### ❌ Lỗi 3.9: Độ trễ cảm biến (Biến trở / Nút bấm) do ngưỡng Deadband và nhịp Heartbeat UDP quá dài (1s)
+* **Hiện tượng:**
+  Xoay biến trở hoặc thao tác cảm biến nhưng giao diện App và code Python phản hồi chậm, có cảm giác bị giật hoặc trễ gần 1 giây mới ăn lệnh.
+* **Nguyên nhân:**
+  1. Trong firmware ESP32 đặt điều kiện thay đổi giá trị: `if (abs(actual_pot_value - last_pot_value) > 3)`. Khi xoay biến trở từ từ, mức thay đổi nhỏ hơn hoặc bằng 3 ADC counts nên không kích hoạt cờ `state_changed`.
+  2. Khi không có cờ `state_changed`, ESP32 phải chờ hết `HEARTBEAT_INTERVAL = 1000` (1 giây) mới gửi gói tin UDP định kỳ lên PC.
+  3. Trong code Python đặt `time.sleep(0.1)` (100ms) tạo thêm độ trễ vòng lặp.
+* **Cách sửa chuẩn:**
+  1. Giảm ngưỡng nhạy cảm biến trên ESP32 xuống: `if (abs(actual_pot_value - last_pot_value) >= 1)`.
+  2. Rút ngắn nhịp phát sóng định kỳ `HEARTBEAT_INTERVAL` xuống **100ms** (10 gói/giây) để luồng dữ liệu truyền liên tục và mượt mà.
+  3. Trong code Python giảm `time.sleep` xuống **0.02s - 0.03s** (20ms - 30ms, tương đương 30-50 FPS) để phản ứng tức thì.
+
+---
+
+
 ## 4. QUY TẮC VÀNG KHI CHỈNH SỬA DỰ ÁN
 
 1. **Về Firmware STM8 & ESP32:**

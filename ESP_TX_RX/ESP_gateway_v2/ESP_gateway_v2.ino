@@ -521,7 +521,7 @@ void Master_Network_Loop() {
 
     wait_start = millis(); parser_state = 0;
     bool valid_pot_frame = false;
-    while ((millis() - wait_start) < 15) {
+    while ((millis() - wait_start) < 20) {
         while (NEURON_SERIAL.available()) {
             uint8_t c = NEURON_SERIAL.read();
             switch (parser_state) {
@@ -539,7 +539,7 @@ void Master_Network_Loop() {
     if (valid_pot_frame) {
         if (slave_pot_online == 0) state_changed = true;
         slave_pot_online = 1; timeout_pot = 0;
-        if (abs(actual_pot_value - last_pot_value) > 3) {
+        if (abs(actual_pot_value - last_pot_value) >= 1) {
             last_pot_value = actual_pot_value;
             state_changed = true;
         }
@@ -602,7 +602,7 @@ void Master_Network_Loop() {
 
     // --- BƯỚC 3: GỬI UDP THEO SỰ KIỆN HOẶC HEARTBEAT ĐỊNH KỲ ---
     static uint32_t last_udp_send = 0;
-    const uint32_t HEARTBEAT_INTERVAL = 1000; // 1 giây (tránh bị timeout 3s của App)
+    const uint32_t HEARTBEAT_INTERVAL = 100; // 100ms (10 gói/giây - cập nhật mượt mà theo thời gian thực)
 
     if (state_changed || (millis() - last_udp_send >= HEARTBEAT_INTERVAL)) {
         last_udp_send = millis();
