@@ -1,0 +1,10 @@
+# Core
+PySide6>=6.7.0
+requests>=2.32.0
+numpy>=1.26.0
+
+# AI / Computer Vision
+opencv-python>=4.13.0
+ultralytics>=8.4.60
+mediapipe>=0.10.35
+onnx>=1.12.0,<2.0.0

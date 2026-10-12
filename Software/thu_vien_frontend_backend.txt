@@ -1,0 +1,81 @@
+DANH SÁCH THƯ VIỆN FRONTEND VÀ BACKEND
+====================================
+Nguồn: frontend/requirements.txt và backend/requirements.txt.
+Đây là các thư viện được khai báo trực tiếp; pip tự cài các phụ thuộc đi kèm.
+Các lệnh bên dưới chạy trong PowerShell tại thư mục gốc dự án.
+
+1. FRONTEND (Python / Qt QML)
+----------------------------
+Thư viện cốt lõi:
+PySide6>=6.7.0             : Giao diện Qt, QML, WebEngine và WebChannel.
+requests>=2.32.0           : Gửi yêu cầu HTTP đến backend.
+numpy>=1.26.0              : Xử lý dữ liệu số, ảnh và mesh.
+
+Thư viện AI / camera của plugin ElectroBlocks:
+opencv-python>=4.13.0      : Đọc webcam, xử lý ảnh và chạy model ONNX.
+ultralytics>=8.4.60        : Nhận diện đối tượng bằng YOLO và xuất model ONNX.
+mediapipe>=0.10.35         : Nhận diện cử chỉ tay và khuôn mặt.
+onnx>=1.12.0,<2.0.0        : Hỗ trợ xuất model sang định dạng ONNX.
+
+Cài đặt lần đầu:
+python -m venv frontend\.venv
+.\frontend\.venv\Scripts\python.exe -m pip install -r frontend/requirements.txt
+
+Cập nhật thư viện khi đã có môi trường .venv:
+.\frontend\.venv\Scripts\python.exe -m pip install -r frontend/requirements.txt
+
+Chạy frontend:
+powershell -ExecutionPolicy Bypass -File run-frontend.ps1
+
+2. BACKEND (FastAPI)
+-------------------
+fastapi==0.115.0                 : Framework xây dựng HTTP API.
+uvicorn[standard]==0.32.0        : Máy chủ chạy ứng dụng FastAPI.
+sqlalchemy==2.0.35              : ORM và truy cập cơ sở dữ liệu SQL.
+alembic==1.13.3                 : Quản lý migration cơ sở dữ liệu.
+pydantic==2.9.2                 : Kiểm tra và chuẩn hóa dữ liệu.
+pydantic-settings==2.5.2        : Đọc cấu hình từ biến môi trường và file .env.
+bcrypt==4.2.0                   : Băm và kiểm tra mật khẩu.
+python-jose[cryptography]==3.3.0 : Ký và xác thực JWT.
+python-multipart==0.0.12        : Đọc dữ liệu form và multipart.
+requests==2.32.3                : Gửi yêu cầu HTTP.
+psycopg2-binary==2.9.10         : Driver kết nối PostgreSQL.
+pymongo==4.10.1                 : Driver kết nối MongoDB cho dữ liệu realtime.
+
+Cài đặt khi chạy backend trực tiếp bằng Python:
+python -m venv backend\.venv
+.\backend\.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
+
+Cập nhật thư viện khi đã có môi trường .venv:
+.\backend\.venv\Scripts\python.exe -m pip install -r backend/requirements.txt
+
+Khởi động database qua Docker trước khi chạy backend trực tiếp:
+docker compose up -d db mongo
+
+Chạy backend trực tiếp (cần cấu hình kết nối database phù hợp trong backend):
+powershell -ExecutionPolicy Bypass -File run_backend.ps1
+
+Địa chỉ backend: http://localhost:8000
+Tài liệu API: http://localhost:8000/docs
+Kiểm tra trạng thái: http://localhost:8000/health
+
+3. MÔI TRƯỜNG VÀ DỊCH VỤ
+-------------------------
+Python 3.11+ : Theo yêu cầu trong dev-start.ps1.
+Docker Desktop / Docker Compose : Cần cho cách chạy bằng Docker.
+PostgreSQL 16 : Database SQL; image postgres:16-alpine, cổng 5432.
+MongoDB 7 : Lưu dữ liệu realtime; image mongo:7, cổng 27017.
+PostgreSQL và MongoDB là dịch vụ riêng, không phải thư viện pip.
+
+Chạy theo quy trình Docker có sẵn của dự án:
+powershell -ExecutionPolicy Bypass -File dev-start.ps1
+powershell -ExecutionPolicy Bypass -File run-frontend.ps1
+
+dev-start.ps1 khởi động database và backend bằng Docker, đồng thời tạo
+môi trường frontend và cài thư viện nếu frontend/.venv chưa tồn tại.
+Nếu frontend/.venv đã tồn tại, dùng lệnh cập nhật thư viện ở mục 1 khi cần.
+Khi chạy backend bằng Docker, không cần cài thư viện backend trên máy host.
+Chọn một cách chạy backend: Docker hoặc trực tiếp, tránh trùng cổng 8000.
+
+Dừng các dịch vụ Docker:
+powershell -ExecutionPolicy Bypass -File dev-stop.ps1

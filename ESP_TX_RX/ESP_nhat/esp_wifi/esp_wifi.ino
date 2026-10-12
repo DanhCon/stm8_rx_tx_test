@@ -15,6 +15,7 @@ char pc_ip[20] = "255.255.255.255";  // global buffer, tránh dangling pointer
 const int pc_port = 9999;
 const int local_port = 8888;
 WiFiUDP udp;
+bool is_ap_mode = false; // Cờ báo thiết bị đang ở AP mode (Web cấu hình)
 
 // ==========================================
 // 2. CẤU HÌNH MẠNG NEURON (UART RING)
@@ -161,10 +162,11 @@ void Check_UDP_Commands() {
 }
 
 void Send_Telemetry_To_PC() {
+    if (WiFi.status() != WL_CONNECTED) return; // Chỉ gửi khi có kết nối WiFi
     char udp_msg[768]; // Cấp phát bộ đệm đủ lớn cho cấu trúc phân tầng
     
-    // Tính toán trước các đại lượng vật lý
-    float resistance = ((float)actual_pot_value / 255.0) * 500.0;
+    // Tính toán trước các đại lượng vật lý (Biến trở B10k: tối đa 10.0 kOhm, góc quay 270 độ)
+    float resistance = ((float)actual_pot_value / 255.0) * 10.0;
     float angle = ((float)actual_pot_value / 255.0) * 270.0;
     int32_t rssi = WiFi.RSSI();
 
@@ -211,7 +213,8 @@ void Send_Telemetry_To_PC() {
 // ==========================================
 void setup() {
     Serial.begin(115200);
-    delay(1000); 
+    while (!Serial && millis() < 3000); // Chờ USB CDC trên ESP32-S3 kết nối
+    delay(500); 
 
     Serial.println("\n[SYSTEM] NEURON IOT GATEWAY BOOTING");
 
@@ -246,18 +249,15 @@ void setup() {
     }
 
     if (!wifi_connected) {
+        is_ap_mode = true;
         WiFi.mode(WIFI_AP);
         WiFi.softAP("Neuron_Gateway_Config");
-        Serial.println("\n[AP Mode] Truy cập IP: 192.168.4.1 để cấu hình");
+        Serial.println("\n[AP Mode] Chưa kết nối WiFi. Phát AP 'Neuron_Gateway_Config'");
+        Serial.println("[AP Mode] Truy cập IP: 192.168.4.1 để cấu hình WiFi (Mạng UART vẫn chạy song song)");
 
         server.on("/", HTTP_GET, handleRoot);
         server.on("/save", HTTP_POST, handleSave);
         server.begin();
-
-        while (true) {
-            server.handleClient();
-            delay(2);
-        }
     }
 
     udp.begin(local_port);
@@ -296,7 +296,7 @@ void Master_Network_Loop() {
 
     wait_start = millis();
     parser_state = 0;
-    while ((millis() - wait_start) < 8) {
+    while ((millis() - wait_start) < 15) {
         while (NEURON_SERIAL.available()) {
             uint8_t c = NEURON_SERIAL.read();
             switch (parser_state) {
@@ -316,6 +316,7 @@ void Master_Network_Loop() {
     }
 
     if (valid_btn_frame) {
+        if (slave_btn_online == 0) state_changed = true; // Node vừa online lại
         slave_btn_online = 1; timeout_btn = 0;
         if (actual_btn_state == 1 && last_btn_state == 0) { 
             button_press_count++;
@@ -329,7 +330,10 @@ void Master_Network_Loop() {
             state_changed = true;
         }
     } else {
-        if (++timeout_btn > 3) slave_btn_online = 0;
+        if (++timeout_btn > 3) {
+            if (slave_btn_online == 1) state_changed = true; // Node vừa bị mất kết nối
+            slave_btn_online = 0;
+        }
     }
     
     delay(2);
@@ -346,7 +350,7 @@ void Master_Network_Loop() {
 
     wait_start = millis();
     parser_state = 0;
-    while ((millis() - wait_start) < 8) {
+    while ((millis() - wait_start) < 15) {
         while (NEURON_SERIAL.available()) {
             uint8_t c = NEURON_SERIAL.read();
             switch (parser_state) {
@@ -366,13 +370,17 @@ void Master_Network_Loop() {
     }
 
     if (valid_led_frame) {
+        if (slave_led_online == 0) state_changed = true; // Node vừa online lại
         slave_led_online = 1; timeout_led = 0;
         if (actual_led_state != last_led_state) {
             last_led_state = actual_led_state;
             state_changed = true;
         }
     } else {
-        if (++timeout_led > 3) slave_led_online = 0;
+        if (++timeout_led > 3) {
+            if (slave_led_online == 1) state_changed = true; // Node vừa bị mất kết nối
+            slave_led_online = 0;
+        }
     }
     
     delay(2);
@@ -391,7 +399,7 @@ void Master_Network_Loop() {
 
     wait_start = millis();
     parser_state = 0;
-    while ((millis() - wait_start) < 8) {
+    while ((millis() - wait_start) < 15) {
         while (NEURON_SERIAL.available()) {
             uint8_t c = NEURON_SERIAL.read();
             switch (parser_state) {
@@ -413,6 +421,7 @@ void Master_Network_Loop() {
     }
 
     if (valid_buz_frame) {
+        if (slave_buz_online == 0) state_changed = true; // Node vừa online lại
         slave_buz_online = 1; timeout_buz = 0;
         if (target_buz_state == 2) target_buz_state = 0; // Reset trạng thái Beep sau khi gửi xong
         if (actual_buz_state != last_buz_state) {
@@ -420,7 +429,10 @@ void Master_Network_Loop() {
             state_changed = true;
         }
     } else {
-        if (++timeout_buz > 3) slave_buz_online = 0;
+        if (++timeout_buz > 3) {
+            if (slave_buz_online == 1) state_changed = true; // Node vừa bị mất kết nối
+            slave_buz_online = 0;
+        }
     }
 
     delay(2);
@@ -435,7 +447,7 @@ void Master_Network_Loop() {
 
     wait_start = millis();
     parser_state = 0;
-    while ((millis() - wait_start) < 8) {
+    while ((millis() - wait_start) < 15) {
         while (NEURON_SERIAL.available()) {
             uint8_t c = NEURON_SERIAL.read();
             switch (parser_state) {
@@ -455,28 +467,37 @@ void Master_Network_Loop() {
     }
 
     if (valid_pot_frame) {
+        if (slave_pot_online == 0) state_changed = true; // Node vừa online lại
         slave_pot_online = 1; timeout_pot = 0;
         if (abs(actual_pot_value - last_pot_value) > 3) {
             last_pot_value = actual_pot_value;
             state_changed = true;
         }
     } else {
-        if (++timeout_pot > 3) slave_pot_online = 0;
+        if (++timeout_pot > 3) {
+            if (slave_pot_online == 1) state_changed = true; // Node vừa bị mất kết nối
+            slave_pot_online = 0;
+        }
     }
 
-    /* --- BƯỚC 3: GỬI UDP (BẢN GỐC CỦA BẠN) --- */
+    /* --- BƯỚC 3: GỬI UDP THEO SỰ KIỆN (EVENT-DRIVEN) + HEARTBEAT --- */
     static uint32_t last_udp_send = 0;
     
-    // 100ms = 10 gói/giây, phù hợp real-time display
-    const uint32_t SEND_INTERVAL = 100;
+    // Bình thường gửi Heartbeat 2.5 giây/lần (2500ms)
+    // Khi có sự kiện (nút bấm, đổi trạng thái led/còi, xoay biến trở), gửi ngay lập tức!
+    const uint32_t HEARTBEAT_INTERVAL = 2500;
 
-    if (millis() - last_udp_send >= SEND_INTERVAL) {
+    if (state_changed || (millis() - last_udp_send >= HEARTBEAT_INTERVAL)) {
         last_udp_send = millis();
-        Send_Telemetry_To_PC(); // Phát dữ liệu phẳng cố định theo chu kỳ thời gian
+        Send_Telemetry_To_PC(); // Bắn telemetry về PC
     }
 } 
 
 void loop() {
+    if (is_ap_mode) {
+        server.handleClient(); // Xử lý Web cấu hình ngầm nếu đang ở AP mode
+    }
+
     Master_Network_Loop();
     
     static uint32_t last_blink = 0;
