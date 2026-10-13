@@ -209,6 +209,50 @@
 
 ---
 
+### ❌ Lỗi 3.10: ESP32 nhận diện sai trạng thái Online (Báo ảo cả 5 Node đều Online khi chỉ cắm 1-2 Node)
+* **Hiện tượng:**
+  Trong mạng vòng Ring khép kín (ví dụ chỉ cắm Đèn và Nút rồi nối về ESP32), trên App hoặc Telemetry vẫn báo Còi, Biến trở, Khoảng cách đều đang `Online = 1`.
+* **Nguyên nhân:**
+  Trong mạng Daisy-chain Ring, mọi module STM8 đều có ngắt phần cứng tự động chuyển tiếp (Hardware Repeater) byte nhận được sang TX. Khi ESP32 phát gói truy vấn thăm dò Node vắng mặt, gói truy vấn này được các module khác chuyển tiếp một vòng quay về chân RX của ESP32 (Gói Echo). Vì Gói Echo có đủ Header `0xAA`, Node ID và Checksum hợp lệ, bộ parser cũ của ESP32 tưởng Node đó vừa phản hồi nên đánh dấu Online.
+* **Cách sửa chuẩn (Thuật toán Dual-Frame Verification):**
+  Phân biệt giữa Node vắng mặt và Node có mặt thật:
+  - **Node vắng mặt:** Chỉ nhận được đúng **1 frame** (chính là Gói Echo do các node khác lặp lại về).
+  - **Node có mặt thật:** Nhận được **ít nhất 2 frame**: Gói 1 (Echo từ repeater) + Gói 2 (ACK hoặc dữ liệu cảm biến thực tế do CPU của node đó tự tạo ra và phát lên mạng).
+  - ESP32 đếm số frame nhận về trong cửa sổ 20ms: Chỉ khi `frames_received >= 2` (hoặc nhận được dữ liệu cảm biến đặc thù từ CPU) mới xác nhận Node đó **ONLINE**. Nếu chỉ nhận được 1 frame echo -> Xác định chính xác Node đó **OFFLINE**.
+
+---
+
+### ❌ Lỗi 3.11: Lệch địa chỉ thanh ghi `TIM2` trên STM8S103F3P6 làm cảm biến khoảng cách HC-SR04 luôn trả về `0 cm`
+* **Hiện tượng:**
+  Nạp code cho STM8 Khoảng cách và chạy `ESP_test_distance.ino`, trên Serial Monitor chỉ hiện dòng tiêu đề `---` rồi đứng im không in ra khoảng cách nào.
+* **Nguyên nhân gốc rễ:**
+  1. Trên dòng chip **STM8S103F3P6** (theo file chuẩn `iostm8s103.h` của Cosmic C), vùng nhớ của `TIM2` có 2 byte Reserved ở `0x5301` và `0x5302`, làm các thanh ghi từ `TIM2_IER` trở đi dịch xuống 2 byte so với dòng STM8S207/208:
+     - `TIM2_CR1`   = `0x5300`
+     - `TIM2_EGR`   = `0x5306` *(không phải `0x5304`)*
+     - `TIM2_CNTRH` = `0x530C` *(không phải `0x530A`)*
+     - `TIM2_CNTRL` = `0x530D` *(không phải `0x530B`)*
+     - `TIM2_PSCR`  = `0x530E` *(không phải `0x530C`)*
+     - `TIM2_ARRH`  = `0x530F` *(không phải `0x530D`)*
+     - `TIM2_ARRL`  = `0x5310` *(không phải `0x530E`)*
+  2. Khi đọc nhầm `0x530A`/`0x530B` (`TIM2_CCER1`/`CCER2`), giá trị bộ đếm luôn bằng `0` -> `echo_time = 0` -> hàm `HCSR04_ReadDistance()` luôn trả về `0`.
+  3. Trên `ESP_test_distance.ino`, câu lệnh `if (current_dist_cm > 0 && current_dist_cm < 255)` bỏ qua giá trị `0` và không in thông báo khi mất kết nối (`frames_received == 0`), làm màn hình Serial đứng im.
+* **Cách sửa chuẩn:**
+  - Sửa lại đúng bảng địa chỉ `TIM2` theo `iostm8s103.h` trong [`stm8_slave_5_khoang_cach/main.c`](file:///F:/stm8_rx_tx_test/stm8_slave_5_khoang_cach/main.c) và biên dịch lại file `.s19`.
+  - Bổ sung log chẩn đoán đầy đủ các trường hợp (`frames_received == 0`, `1`, `255`, `0`) trong [`ESP_test_distance.ino`](file:///F:/stm8_rx_tx_test/ESP_TX_RX/ESP_test_distance/ESP_test_distance.ino).
+
+---
+
+### ❌ Lỗi 3.12: Thiếu 1 phần tử trong mảng `_vectab[]` làm lệch địa chỉ ngắt `UART1 RX` (`IRQ18`) khiến STM8 không lặp lại (Repeater) byte nào
+* **Hiện tượng:**
+  Đo dây vật lý giữa ESP32 và STM8 hoàn toàn thông mạch (`TX GPIO4 -> PD6`, `PD5 -> RX GPIO5`), nhưng ESP32 báo `❌ [MẤT KẾT NỐI UART] Không nhận được byte nào!`.
+* **Nguyên nhân gốc rễ:**
+  Trong bảng vector ngắt `_vectab[]` của [`stm8_slave_5_khoang_cach/stm8_interrupt_vector.c`](file:///F:/stm8_rx_tx_test/stm8_slave_5_khoang_cach/stm8_interrupt_vector.c) (và `stm8_slave_6_lcd`), trước dòng `{0x82, UART1_RX_IRQHandler}` chỉ có **18** dòng `NonHandledInterrupt` thay vì **19** dòng (`TRAP` + `IRQ0..IRQ17`).
+  - Hệ quả: Hàm `UART1_RX_IRQHandler` bị đặt nhầm vào ô số 19 (`0x804C` = `IRQ17 - UART1 TX`), còn ô số 20 (`0x8050` = `IRQ18 - UART1 RX`) lại trỏ vào `NonHandledInterrupt`.
+  - Ngay khi ESP32 gửi byte đầu tiên `0xAA` sang, ngắt `IRQ18` kích hoạt nhưng nhảy vào `NonHandledInterrupt` (không đọc `UART1_DR` để xóa cờ ngắt và không đẩy byte sang `TX`), làm treo CPU STM8 trong vòng lặp ngắt vô tận và không có bất kỳ byte nào quay về ESP32.
+* **Cách sửa chuẩn:**
+  Đảm bảo mảng `_vectab[]` có đúng **20 phần tử đứng trước `UART1_RX_IRQHandler`** (gồm 1 `Reset` + 1 `TRAP` + 18 `IRQ0..IRQ17`), để `UART1_RX_IRQHandler` nằm chính xác tại địa chỉ `0x8050` (`IRQ18`).
+
+---
 
 ## 4. QUY TẮC VÀNG KHI CHỈNH SỬA DỰ ÁN
 

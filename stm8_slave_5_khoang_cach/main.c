@@ -1,8 +1,8 @@
 /* =========================================================
    STM8S103F3P6 - SLAVE 5 (HOAC SLAVE 4): CAM BIEN KHOANG CACH HC-SR04
    Trang bi: 
-     - TRIG : PA3 (Output Push-Pull)
-     - ECHO : PD2 (Input Floating)
+     - ECHO : PA1 (Chan so 5 - Input Floating)
+     - TRIG : PA2 (Chan so 6 - Output Push-Pull)
      - LED  : PC3 (Output Push-Pull, Onboard Debug LED)
      - UART1: 9600 bps (TX=PD5, RX=PD6)
      - TIM2 : Do thoi gian Pulse (1 tick = 1us @ 16MHz)
@@ -21,22 +21,15 @@
 #define GPIOC_CR1      *(volatile unsigned char*)(0x00500D)
 
 /* =========================================================
-   GPIOA (HC-SR04 TRIG TAI PA3 - OUTPUT)
+   GPIOA (HC-SR04: ECHO = PA1, TRIG = PA2)
+   Dia chi chuan STM8S103:
+     ODR = 0x5000, IDR = 0x5001, DDR = 0x5002, CR1 = 0x5003, CR2 = 0x5004
 ========================================================= */
 #define GPIOA_ODR      *(volatile unsigned char*)(0x005000)
+#define GPIOA_IDR      *(volatile unsigned char*)(0x005001)
 #define GPIOA_DDR      *(volatile unsigned char*)(0x005002)
 #define GPIOA_CR1      *(volatile unsigned char*)(0x005003)
-
-/* =========================================================
-   GPIOD (HC-SR04 ECHO TAI PD2 - INPUT)
-   Luu y dia chi chuan STM8S103:
-     ODR = 0x500F, IDR = 0x5010, DDR = 0x5011, CR1 = 0x5012
-========================================================= */
-#define GPIOD_ODR      *(volatile unsigned char*)(0x00500F)
-#define GPIOD_IDR      *(volatile unsigned char*)(0x005010)
-#define GPIOD_DDR      *(volatile unsigned char*)(0x005011)
-#define GPIOD_CR1      *(volatile unsigned char*)(0x005012)
-#define GPIOD_CR2      *(volatile unsigned char*)(0x005013)
+#define GPIOA_CR2      *(volatile unsigned char*)(0x005004)
 
 /* =========================================================
    UART1 (9600 BAUD @ 16MHz)
@@ -49,22 +42,22 @@
 
 /* =========================================================
    TIM2 (DO THOI GIAN PULSE HC-SR04)
-   Dia chi chuan RM0016 STM8S103:
+   Dia chi chuan iostm8s103.h (STM8S103F3P6):
      CR1:   0x5300
-     EGR:   0x5304
-     CNTRH: 0x530A
-     CNTRL: 0x530B
-     PSCR:  0x530C
-     ARRH:  0x530D
-     ARRL:  0x530E
+     EGR:   0x5306
+     CNTRH: 0x530C
+     CNTRL: 0x530D
+     PSCR:  0x530E
+     ARRH:  0x530F
+     ARRL:  0x5310
 ========================================================= */
 #define TIM2_CR1       *(volatile unsigned char*)(0x005300)
-#define TIM2_EGR       *(volatile unsigned char*)(0x005304)
-#define TIM2_CNTRH     *(volatile unsigned char*)(0x00530A)
-#define TIM2_CNTRL     *(volatile unsigned char*)(0x00530B)
-#define TIM2_PSCR      *(volatile unsigned char*)(0x00530C)
-#define TIM2_ARRH      *(volatile unsigned char*)(0x00530D)
-#define TIM2_ARRL      *(volatile unsigned char*)(0x00530E)
+#define TIM2_EGR       *(volatile unsigned char*)(0x005306)
+#define TIM2_CNTRH     *(volatile unsigned char*)(0x00530C)
+#define TIM2_CNTRL     *(volatile unsigned char*)(0x00530D)
+#define TIM2_PSCR      *(volatile unsigned char*)(0x00530E)
+#define TIM2_ARRH      *(volatile unsigned char*)(0x00530F)
+#define TIM2_ARRL      *(volatile unsigned char*)(0x005310)
 
 /* Bien toan cuc chia se tu ISR ngat UART */
 extern volatile unsigned char global_req_dist;
@@ -103,22 +96,22 @@ unsigned int HCSR04_ReadDistance(void) {
     unsigned char cnt_h;
     unsigned char cnt_l;
 
-    /* 0. Cho chan ECHO xuong LOW truoc khi ban xung (tranh loi ket) */
+    /* 0. Cho chan ECHO (PA1) xuong LOW truoc khi ban xung (tranh loi ket) */
     timeout = 10000;
-    while ((GPIOD_IDR & (1 << 2)) && timeout) {
+    while ((GPIOA_IDR & (1 << 1)) && timeout) {
         timeout--;
     }
 
-    /* 1. Tao xung TRIG 15us tai PA3 */
-    GPIOA_ODR &= ~(1 << 3);
+    /* 1. Tao xung TRIG 15us tai PA2 */
+    GPIOA_ODR &= ~(1 << 2);
     delay_us(2);
-    GPIOA_ODR |= (1 << 3);
+    GPIOA_ODR |= (1 << 2);
     delay_us(15);
-    GPIOA_ODR &= ~(1 << 3);
+    GPIOA_ODR &= ~(1 << 2);
 
-    /* 2. Cho chan ECHO (PD2) len muc HIGH */
+    /* 2. Cho chan ECHO (PA1) len muc HIGH */
     timeout = 10000;
-    while (!(GPIOD_IDR & (1 << 2))) {
+    while (!(GPIOA_IDR & (1 << 1))) {
         timeout--;
         if (timeout == 0) {
             return 255; /* Timeout: Khong thay phan hoi tu cam bien */
@@ -129,9 +122,9 @@ unsigned int HCSR04_ReadDistance(void) {
     TIM2_CNTRH = 0x00;
     TIM2_CNTRL = 0x00;
 
-    /* 4. Cho chan ECHO (PD2) xuong muc LOW */
+    /* 4. Cho chan ECHO (PA1) xuong muc LOW */
     /* Gioi han thoi gian toi da: CNTRH > 120 tuc ~30.7ms (~5.3m) */
-    while (GPIOD_IDR & (1 << 2)) {
+    while (GPIOA_IDR & (1 << 1)) {
         if (TIM2_CNTRH > 120) {
             break; /* Timeout ngoai tam do */
         }
@@ -143,8 +136,8 @@ unsigned int HCSR04_ReadDistance(void) {
     echo_time = ((unsigned int)cnt_h << 8) | cnt_l;
 
     /* 6. Tinh khoang cach: Distance (cm) = echo_time / 58 */
-    if (echo_time < 116) {
-        return 0; /* Duoi 2cm: qua gan hoac nhieu */
+    if (echo_time < 58) {
+        return 1; /* Vat can sat < 1cm */
     }
 
     return (echo_time / 58);
@@ -159,15 +152,15 @@ void main(void)
     GPIOC_CR1 |= (1 << 3);  
     GPIOC_ODR &= ~(1 << 3); 
 
-    /* Cau hinh PA3 - Output Push-Pull (TRIG) */
-    GPIOA_DDR |= (1 << 3);
-    GPIOA_CR1 |= (1 << 3);
-    GPIOA_ODR &= ~(1 << 3);
+    /* Cau hinh PA2 - Output Push-Pull (TRIG) */
+    GPIOA_DDR |= (1 << 2);
+    GPIOA_CR1 |= (1 << 2);
+    GPIOA_ODR &= ~(1 << 2);
 
-    /* Cau hinh PD2 - Input Floating (ECHO) */
-    GPIOD_DDR &= ~(1 << 2);
-    GPIOD_CR1 &= ~(1 << 2);
-    GPIOD_CR2 &= ~(1 << 2);
+    /* Cau hinh PA1 - Input Floating (ECHO) */
+    GPIOA_DDR &= ~(1 << 1);
+    GPIOA_CR1 &= ~(1 << 1);
+    GPIOA_CR2 &= ~(1 << 1);
 
     /* Cau hinh UART1 (9600 bps @ 16MHz) - Ghi BRR2 truoc, BRR1 sau */
     UART1_BRR2 = 0x03;

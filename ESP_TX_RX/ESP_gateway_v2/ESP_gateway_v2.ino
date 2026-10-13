@@ -361,9 +361,9 @@ void Master_Network_Loop() {
     NEURON_SERIAL.flush();
 
     wait_start = millis(); parser_state = 0;
-    bool valid_btn_frame = false;
-    uint8_t current_slot_btn = 0; // Mặc định là Nhả (0)
-    uint8_t temp_btn_val = 0;
+    uint8_t btn_frames_received = 0;
+    uint8_t temp_btn_cmd = 0;
+    bool real_btn_ack = false;
     while ((millis() - wait_start) < 20) {
         while (NEURON_SERIAL.available()) {
             uint8_t c = NEURON_SERIAL.read();
@@ -371,24 +371,28 @@ void Master_Network_Loop() {
                 case 0: if (c == FRAME_HEADER) parser_state = 1; break;
                 case 1: parser_state = (c == ID_BUTTON) ? 2 : 0; break;
                 case 2:
-                    if (c == RES_BTN_PRESSED)       { temp_btn_val = 1; parser_state = 3; }
-                    else if (c == RES_BTN_RELEASED) { temp_btn_val = 0; parser_state = 3; }
-                    else parser_state = 0;
+                    temp_btn_cmd = c;
+                    parser_state = 3;
                     break;
                 case 3:
-                    if (c == Calc_Checksum(ID_BUTTON, (temp_btn_val ? RES_BTN_PRESSED : RES_BTN_RELEASED))) {
-                        valid_btn_frame = true;
-                        // Gói Echo từ ESP chỉ có 0x50. Nếu có gói 0x51 từ STM8 thật, chốt ngay là NHẤN (1)!
-                        if (temp_btn_val == 1) current_slot_btn = 1;
+                    if (c == Calc_Checksum(ID_BUTTON, temp_btn_cmd)) {
+                        btn_frames_received++;
+                        // Nếu nhận mã 0x51 (Nhấn) -> chắc chắn từ STM8 vì Echo chỉ có 0x50
+                        // Hoặc nếu nhận >= 2 frame -> có Frame 2 (ACK thực sự từ CPU STM8)
+                        if (temp_btn_cmd == RES_BTN_PRESSED || btn_frames_received >= 2) {
+                            real_btn_ack = true;
+                            actual_btn_state = (temp_btn_cmd == RES_BTN_PRESSED) ? 1 : 0;
+                        }
                     }
                     parser_state = 0;
                     break;
             }
+            if (real_btn_ack) break;
         }
+        if (real_btn_ack) break;
     }
 
-    if (valid_btn_frame) {
-        actual_btn_state = current_slot_btn;
+    if (real_btn_ack) {
         if (slave_btn_online == 0) state_changed = true;
         slave_btn_online = 1; timeout_btn = 0;
         if (actual_btn_state == 1 && last_btn_state == 0) { 
@@ -420,30 +424,37 @@ void Master_Network_Loop() {
     NEURON_SERIAL.flush();
 
     wait_start = millis(); parser_state = 0;
-    bool valid_led_frame = false;
-    while ((millis() - wait_start) < 15) {
+    uint8_t led_frames_received = 0;
+    uint8_t temp_led_cmd = 0;
+    bool real_led_ack = false;
+    while ((millis() - wait_start) < 20) {
         while (NEURON_SERIAL.available()) {
             uint8_t c = NEURON_SERIAL.read();
             switch (parser_state) {
                 case 0: if (c == FRAME_HEADER) parser_state = 1; break;
                 case 1: parser_state = (c == ID_LED) ? 2 : 0; break;
                 case 2:
-                    if (c == CMD_LED_ON) { actual_led_state = 1; parser_state = 3; }
-                    else if (c == CMD_LED_OFF) { actual_led_state = 0; parser_state = 3; }
-                    else if (c == CMD_LED_BLINK) { actual_led_state = 2; parser_state = 3; }
-                    else parser_state = 0;
+                    temp_led_cmd = c;
+                    parser_state = 3;
                     break;
                 case 3:
-                    if (c == Calc_Checksum(ID_LED, cmd_led)) valid_led_frame = true;
+                    if (c == Calc_Checksum(ID_LED, temp_led_cmd)) {
+                        led_frames_received++;
+                        // Frame 1 = Echo từ repeater; Frame 2 = ACK thực sự từ CPU STM8
+                        if (led_frames_received >= 2) {
+                            real_led_ack = true;
+                            actual_led_state = (temp_led_cmd == CMD_LED_ON) ? 1 : ((temp_led_cmd == CMD_LED_BLINK) ? 2 : 0);
+                        }
+                    }
                     parser_state = 0;
                     break;
             }
-            if (valid_led_frame) break;
+            if (real_led_ack) break;
         }
-        if (valid_led_frame) break;
+        if (real_led_ack) break;
     }
 
-    if (valid_led_frame) {
+    if (real_led_ack) {
         if (slave_led_online == 0) state_changed = true;
         slave_led_online = 1; timeout_led = 0;
         if (actual_led_state != last_led_state) {
@@ -470,30 +481,36 @@ void Master_Network_Loop() {
     NEURON_SERIAL.flush();
 
     wait_start = millis(); parser_state = 0;
-    bool valid_buz_frame = false;
-    while ((millis() - wait_start) < 15) {
+    uint8_t buz_frames_received = 0;
+    uint8_t temp_buz_cmd = 0;
+    bool real_buz_ack = false;
+    while ((millis() - wait_start) < 20) {
         while (NEURON_SERIAL.available()) {
             uint8_t c = NEURON_SERIAL.read();
             switch (parser_state) {
                 case 0: if (c == FRAME_HEADER) parser_state = 1; break;
                 case 1: parser_state = (c == ID_BUZZER) ? 2 : 0; break;
                 case 2:
-                    if (c == CMD_BUZ_ON) { actual_buz_state = 1; parser_state = 3; }
-                    else if (c == CMD_BUZ_OFF) { actual_buz_state = 0; parser_state = 3; }
-                    else if (c == CMD_BUZ_BEEP) { actual_buz_state = 2; parser_state = 3; }
-                    else parser_state = 0;
+                    temp_buz_cmd = c;
+                    parser_state = 3;
                     break;
                 case 3:
-                    if (c == Calc_Checksum(ID_BUZZER, cmd_buz)) valid_buz_frame = true;
+                    if (c == Calc_Checksum(ID_BUZZER, temp_buz_cmd)) {
+                        buz_frames_received++;
+                        if (buz_frames_received >= 2) {
+                            real_buz_ack = true;
+                            actual_buz_state = (temp_buz_cmd == CMD_BUZ_ON) ? 1 : ((temp_buz_cmd == CMD_BUZ_BEEP) ? 2 : 0);
+                        }
+                    }
                     parser_state = 0;
                     break;
             }
-            if (valid_buz_frame) break;
+            if (real_buz_ack) break;
         }
-        if (valid_buz_frame) break;
+        if (real_buz_ack) break;
     }
 
-    if (valid_buz_frame) {
+    if (real_buz_ack) {
         if (slave_buz_online == 0) state_changed = true;
         slave_buz_online = 1; timeout_buz = 0;
         if (target_buz_state == 2) target_buz_state = 0; // Reset Beep sau khi gửi
@@ -520,23 +537,37 @@ void Master_Network_Loop() {
     NEURON_SERIAL.flush();
 
     wait_start = millis(); parser_state = 0;
-    bool valid_pot_frame = false;
+    uint8_t pot_frames_received = 0;
+    uint8_t temp_pot_val = 0;
+    bool real_pot_ack = false;
     while ((millis() - wait_start) < 20) {
         while (NEURON_SERIAL.available()) {
             uint8_t c = NEURON_SERIAL.read();
             switch (parser_state) {
                 case 0: if (c == FRAME_HEADER) parser_state = 1; break;
                 case 1: parser_state = (c == ID_POT) ? 2 : 0; break;
-                case 2: actual_pot_value = c; parser_state = 3; break;
+                case 2:
+                    temp_pot_val = c;
+                    parser_state = 3;
+                    break;
                 case 3:
-                    if (c == Calc_Checksum(ID_POT, actual_pot_value)) valid_pot_frame = true;
+                    if (c == Calc_Checksum(ID_POT, temp_pot_val)) {
+                        pot_frames_received++;
+                        // Frame 1 = Echo lệnh hỏi (0x60). Frame 2 = Giá trị ADC thực tế từ STM8
+                        if (pot_frames_received >= 2) {
+                            real_pot_ack = true;
+                            actual_pot_value = temp_pot_val;
+                        }
+                    }
                     parser_state = 0;
                     break;
             }
+            if (real_pot_ack) break;
         }
+        if (real_pot_ack) break;
     }
 
-    if (valid_pot_frame) {
+    if (real_pot_ack) {
         if (slave_pot_online == 0) state_changed = true;
         slave_pot_online = 1; timeout_pot = 0;
         if (abs(actual_pot_value - last_pot_value) >= 1) {
@@ -556,7 +587,7 @@ void Master_Network_Loop() {
     // NODE 5: CẢM BIẾN KHOẢNG CÁCH HC-SR04 (ID 0x05)
     // ──────────────────────────────────────────
     static uint32_t last_dist_poll = 0;
-    // Khi đang online: quét liên tục; khi offline: chỉ thử thăm dò mỗi 500ms để tránh tốn 35ms chờ
+    // Khi đang online: quét liên tục; khi offline: chỉ thử thăm dò mỗi 500ms để tránh tốn thời gian chờ
     if (slave_dist_online || (millis() - last_dist_poll >= 500)) {
         last_dist_poll = millis();
         clear_rx_buffer();
@@ -565,27 +596,38 @@ void Master_Network_Loop() {
         NEURON_SERIAL.write(tx_frame, 4);
         NEURON_SERIAL.flush();
 
-        // Chờ phản hồi tối đa 35ms (do sóng siêu âm cần thời gian phản hồi)
         wait_start = millis(); parser_state = 0;
-        bool valid_dist_frame = false;
-        while ((millis() - wait_start) < 35) {
+        uint8_t dist_frames_received = 0;
+        uint8_t temp_dist_val = 0;
+        bool real_dist_ack = false;
+        while ((millis() - wait_start) < 40) {
             while (NEURON_SERIAL.available()) {
                 uint8_t c = NEURON_SERIAL.read();
                 switch (parser_state) {
                     case 0: if (c == FRAME_HEADER) parser_state = 1; break;
                     case 1: parser_state = (c == ID_DISTANCE) ? 2 : 0; break;
-                    case 2: actual_dist_cm = c; parser_state = 3; break;
+                    case 2:
+                        temp_dist_val = c;
+                        parser_state = 3;
+                        break;
                     case 3:
-                        if (c == Calc_Checksum(ID_DISTANCE, actual_dist_cm)) valid_dist_frame = true;
+                        if (c == Calc_Checksum(ID_DISTANCE, temp_dist_val)) {
+                            dist_frames_received++;
+                            // Frame 1 = Echo lệnh hỏi (0x70). Frame 2 = Khoảng cách cm thực tế từ STM8
+                            if (dist_frames_received >= 2) {
+                                real_dist_ack = true;
+                                actual_dist_cm = temp_dist_val;
+                            }
+                        }
                         parser_state = 0;
                         break;
                 }
-                if (valid_dist_frame) break;
+                if (real_dist_ack) break;
             }
-            if (valid_dist_frame) break;
+            if (real_dist_ack) break;
         }
 
-        if (valid_dist_frame) {
+        if (real_dist_ack) {
             if (slave_dist_online == 0) state_changed = true;
             slave_dist_online = 1; timeout_dist = 0;
             if (abs(actual_dist_cm - last_dist_cm) > 2) {

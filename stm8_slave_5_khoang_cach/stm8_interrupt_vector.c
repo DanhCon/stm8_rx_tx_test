@@ -86,39 +86,39 @@ extern void _stext();
    BANG VECTOR NGAT (INTERRUPT VECTOR TABLE)
 ========================================================= */
 struct interrupt_vector const _vectab[] = {
-    {0x82, (interrupt_handler_t)_stext}, /* Reset Vector */
-    {0x82, NonHandledInterrupt},         /* TRAP */
-    {0x82, NonHandledInterrupt},         /* TLI */
-    {0x82, NonHandledInterrupt},         /* AWU */
-    {0x82, NonHandledInterrupt},         /* CLK */
-    {0x82, NonHandledInterrupt},         /* EXTI0 */
-    {0x82, NonHandledInterrupt},         /* EXTI1 */
-    {0x82, NonHandledInterrupt},         /* EXTI2 */
-    {0x82, NonHandledInterrupt},         /* EXTI3 */
-    {0x82, NonHandledInterrupt},         /* EXTI4 */
-    {0x82, NonHandledInterrupt},         
-    {0x82, NonHandledInterrupt},         
-    {0x82, NonHandledInterrupt},         /* SPI */
-    {0x82, NonHandledInterrupt},         /* TIM1 Ovf */
-    {0x82, NonHandledInterrupt},         /* TIM1 Cap/Comp */
-    {0x82, NonHandledInterrupt},         /* TIM2 Ovf */
-    {0x82, NonHandledInterrupt},         /* TIM2 Cap/Comp */
-    {0x82, NonHandledInterrupt},         
-    {0x82, NonHandledInterrupt},         
+    {0x82, (interrupt_handler_t)_stext}, /* 0x8000: Reset Vector */
+    {0x82, NonHandledInterrupt},         /* 0x8004: TRAP */
+    {0x82, NonHandledInterrupt},         /* 0x8008: IRQ0  - TLI */
+    {0x82, NonHandledInterrupt},         /* 0x800C: IRQ1  - AWU */
+    {0x82, NonHandledInterrupt},         /* 0x8010: IRQ2  - CLK */
+    {0x82, NonHandledInterrupt},         /* 0x8014: IRQ3  - EXTI0 */
+    {0x82, NonHandledInterrupt},         /* 0x8018: IRQ4  - EXTI1 */
+    {0x82, NonHandledInterrupt},         /* 0x801C: IRQ5  - EXTI2 */
+    {0x82, NonHandledInterrupt},         /* 0x8020: IRQ6  - EXTI3 */
+    {0x82, NonHandledInterrupt},         /* 0x8024: IRQ7  - EXTI4 */
+    {0x82, NonHandledInterrupt},         /* 0x8028: IRQ8  - Reserved */
+    {0x82, NonHandledInterrupt},         /* 0x802C: IRQ9  - Reserved */
+    {0x82, NonHandledInterrupt},         /* 0x8030: IRQ10 - SPI */
+    {0x82, NonHandledInterrupt},         /* 0x8034: IRQ11 - TIM1 Ovf */
+    {0x82, NonHandledInterrupt},         /* 0x8038: IRQ12 - TIM1 Cap/Comp */
+    {0x82, NonHandledInterrupt},         /* 0x803C: IRQ13 - TIM2 Ovf */
+    {0x82, NonHandledInterrupt},         /* 0x8040: IRQ14 - TIM2 Cap/Comp */
+    {0x82, NonHandledInterrupt},         /* 0x8044: IRQ15 - Reserved */
+    {0x82, NonHandledInterrupt},         /* 0x8048: IRQ16 - Reserved */
+    {0x82, NonHandledInterrupt},         /* 0x804C: IRQ17 - UART1 TX */
     
-    /* IRQ18 - UART1 RX Interrupt */
+    /* 0x8050: IRQ18 - UART1 RX Interrupt */
     {0x82, UART1_RX_IRQHandler},
     
-    {0x82, NonHandledInterrupt},         /* UART1 TX */
-    {0x82, NonHandledInterrupt},         /* I2C */
-    {0x82, NonHandledInterrupt},         
-    {0x82, NonHandledInterrupt},         
-    {0x82, NonHandledInterrupt},         /* ADC1 */
-    {0x82, NonHandledInterrupt},         /* TIM4 */
-    {0x82, NonHandledInterrupt},         /* Flash */
-    {0x82, NonHandledInterrupt},         
-    {0x82, NonHandledInterrupt},         
-    {0x82, NonHandledInterrupt},         
-    {0x82, NonHandledInterrupt},         
-    {0x82, NonHandledInterrupt}          
+    {0x82, NonHandledInterrupt},         /* 0x8054: IRQ19 - I2C */
+    {0x82, NonHandledInterrupt},         /* 0x8058: IRQ20 - Reserved */
+    {0x82, NonHandledInterrupt},         /* 0x805C: IRQ21 - Reserved */
+    {0x82, NonHandledInterrupt},         /* 0x8060: IRQ22 - ADC1 */
+    {0x82, NonHandledInterrupt},         /* 0x8064: IRQ23 - TIM4 */
+    {0x82, NonHandledInterrupt},         /* 0x8068: IRQ24 - Flash */
+    {0x82, NonHandledInterrupt},         /* 0x806C: IRQ25 - Reserved */
+    {0x82, NonHandledInterrupt},         /* 0x8070: IRQ26 - Reserved */
+    {0x82, NonHandledInterrupt},         /* 0x8074: IRQ27 - Reserved */
+    {0x82, NonHandledInterrupt},         /* 0x8078: IRQ28 - Reserved */
+    {0x82, NonHandledInterrupt}          /* 0x807C: IRQ29 - Reserved */
 };
