@@ -1,0 +1,39 @@
+======================================================================
+              HƯỚNG DẪN KHỞI ĐỘNG PHẦN MỀM FABLAB STEM PLATFORM
+======================================================================
+
+Từ bây giờ, bạn có thể tự mở phần mềm bất cứ lúc nào bằng 1 trong các cách sau:
+
+----------------------------------------------------------------------
+CÁCH 1: BẤM ĐÚP TỪ MÀN HÌNH MÁY TÍNH (DESKTOP) - NHANH NHẤT
+----------------------------------------------------------------------
+Mình đã tạo sẵn 2 biểu tượng lối tắt (Shortcut) ngay ngoài màn hình Desktop của bạn:
+1. "Mo_App_FabLab_STEM": Khởi động TẤT CẢ (Tự bật Backend + Bật App).
+2. "Bat_Backend_STEM": Dùng khi chỉ muốn bật riêng Backend Server (Port 8000).
+
+----------------------------------------------------------------------
+CÁCH 2: BẤM ĐÚP VÀO FILE .BAT TRONG THƯ MỤC NÀY
+----------------------------------------------------------------------
+Trong thư mục F:\stm8_rx_tx_test:
+-> File: MO_APP_STEM.bat   (Tự kiểm tra, nếu chưa có Backend thì tự bật Backend rồi mở App)
+-> File: BAT_BACKEND.bat  (Bật riêng cửa sổ Backend Server)
+
+----------------------------------------------------------------------
+CÁCH 3: MỞ BẰNG DÒNG LỆNH (POWERSHELL / TERMINAL / CMD)
+----------------------------------------------------------------------
+Nếu bạn mở cửa sổ dòng lệnh PowerShell hoặc Command Prompt (CMD), chỉ cần gõ 2 dòng lệnh sau:
+
+cd F:\stm8_rx_tx_test
+.\MO_APP_STEM.bat
+
+----------------------------------------------------------------------
+TÀI KHOẢN ĐĂNG NHẬP SẴN TRONG HỆ THỐNG:
+----------------------------------------------------------------------
+1. Tài khoản Học sinh (Dành cho học tập, lập trình kéo thả Blockly, thí nghiệm):
+   - Email:    danh.huynh@gmail.com
+   - Mật khẩu: 123456
+
+2. Tài khoản Quản trị / Giáo viên (Admin):
+   - Email:    admin@fablab.vn
+   - Mật khẩu: admin123
+======================================================================

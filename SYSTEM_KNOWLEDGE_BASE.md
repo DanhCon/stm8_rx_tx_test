@@ -1,4 +1,4 @@
-﻿# SYSTEM KNOWLEDGE BASE & AGENT RUNBOOK: NEURON RING (ESP32-S3 + STM8S SLAVES)
+# SYSTEM KNOWLEDGE BASE & AGENT RUNBOOK: NEURON RING (ESP32-S3 + STM8S SLAVES)
 
 > **DÀNH CHO CÁC AGENT & KỸ SƯ PHÁT TRIỂN TIẾP THEO:**
 > Tài liệu này tổng hợp toàn bộ cấu trúc hệ thống, các lỗi sai chết người đã gặp, cách sửa chữa, và những nguyên tắc bất biến để không bao giờ lặp lại lỗi trên hệ thống này.
@@ -78,7 +78,8 @@ Tất cả các Slave STM8 **PHẢI** cấu hình ngắt nhận UART1 (`UART1_RX
 | **Slave 2** | Nút nhấn | `0x02` | PC4 (Input Pull-up, nhấn xuống GND) | `0x50`: Hỏi trạng thái | `0x51`: PRESSED (Đang nhấn)<br>`0x50`: RELEASED (Nhả) |
 | **Slave 3** | Còi báo | `0x03` | PC5 (Output) | `0x40`: ON<br>`0x41`: OFF<br>`0x42`: Beep | Trả lại mã lệnh vừa thực hiện |
 | **Slave 4** | Biến trở | `0x04` | PD3 (ADC Ch 4 / AIN4) | `0x60`: Hỏi giá trị | Giá trị ADC 8-bit (`0` đến `255`) |
-| **Slave 5** | Siêu âm | `0x05` | PA3: Trig<br>PD2: Echo<br>PC3: LED | `0x70`: Hỏi khoảng cách (hoặc `0x40`) | Khoảng cách (`0` đến `255` cm) |
+| **Slave 5** | Siêu âm | `0x05` | PA1: Echo<br>PA2: Trig<br>PC3: LED | `0x70`: Hỏi khoảng cách (hoặc `0x40`) | Khoảng cách (`0` đến `255` cm) |
+| **Slave 6** | Màn LCD 1602 | `0x06` | PB4: SCL<br>PB5: SDA | `0x80`: Backlight ON<br>`0x81`: Backlight OFF<br>`0x82`: Clear | Xác nhận lệnh thực hiện |
 
 ---
 
@@ -102,16 +103,16 @@ Tất cả các Slave STM8 **PHẢI** cấu hình ngắt nhận UART1 (`UART1_RX
 - `UART1_CR2` : `0x005235` (Giá trị: `0x2C` = `TEN | REN | RIEN`)
 *QUY TẮC BẮT BUỘC*: **Phải ghi `UART1_BRR2 = 0x03` trước, rồi mới ghi `UART1_BRR1 = 0x68`!**
 
-### 4.3. TIM2 Registers (Đo thời gian Microsecond)
+### 4.3. TIM2 Registers (Đo thời gian Microsecond trên STM8S103F3)
 - `TIM2_CR1`  : `0x005300` (Bit 0: `CEN` - Counter Enable)
-- `TIM2_IER`  : `0x005301`
-- `TIM2_SR1`  : `0x005302`
-- `TIM2_EGR`  : `0x005304` (Bit 0: `UG` - Update Generation để nạp ngay prescaler)
-- `TIM2_CNTRH`: `0x00530A` (Byte cao của bộ đếm 16-bit)
-- `TIM2_CNTRL`: `0x00530B` (Byte thấp của bộ đếm 16-bit)
-- `TIM2_PSCR` : `0x00530C` (Prescaler: ghi `0x04` để chia 16 -> $1\mu\text{s/tick}$ @ 16MHz)
-- `TIM2_ARRH` : `0x00530D` (Ghi `0xFF`)
-- `TIM2_ARRL` : `0x00530E` (Ghi `0xFF`)
+- `TIM2_IER`  : `0x005303`
+- `TIM2_SR1`  : `0x005304`
+- `TIM2_EGR`  : `0x005306` (Bit 0: `UG` - Update Generation để nạp ngay prescaler)
+- `TIM2_CNTRH`: `0x00530C` (Byte cao của bộ đếm 16-bit)
+- `TIM2_CNTRL`: `0x00530D` (Byte thấp của bộ đếm 16-bit)
+- `TIM2_PSCR` : `0x00530E` (Prescaler: ghi `0x04` để chia 16 -> $1\mu\text{s/tick}$ @ 16MHz)
+- `TIM2_ARRH` : `0x00530F` (Ghi `0xFF`)
+- `TIM2_ARRL` : `0x005310` (Ghi `0xFF`)
 
 ### 4.4. ADC1 Registers (Biến trở AIN4 trên PD3)
 - `ADC_CSR`: `0x005400` (`0x04` chọn kênh 4)
@@ -173,5 +174,12 @@ Trong thư mục `F:\stm8_rx_tx_test\ESP_TX_RX\`:
 2. `ESP_test_button`: Test riêng Slave 2 (Nút bấm PC4).
 3. `ESP_test_btn_control_led`: Test kết hợp Slave 2 nhấn nút điều khiển Slave 1 bật đèn qua vòng Ring.
 4. `ESP_test_potentiometer`: Test riêng Slave 4 (Biến trở B10k trên PD3).
-5. `ESP_test_distance`: Test riêng Slave 5 (Khoảng cách HC-SR04 trên PA3/PD2).
-6. `ESP_nhat/esp_wifi/esp_wifi.ino`: Gateway chính kết hợp tất cả các Slave, tích hợp Web Server cấu hình AP, UDP Telemetry Event-driven + Heartbeat 2.5s.
+5. `ESP_test_distance`: Test riêng Slave 5 (Khoảng cách HC-SR04 trên PA1/PA2).
+6. `ESP_gateway_v2/ESP_gateway_v2.ino`: Gateway chính thức tích hợp tất cả các Slave, Dual-Frame Verification, UDP Telemetry Heartbeat 100ms, Deadband abs >= 1, Fast-boot siêu âm 100ms.
+7. `ESP_nhat/esp_wifi/esp_wifi.ino`: Gateway gốc ban đầu (lưu trữ đối chiếu).
+
+---
+
+> 📖 **XEM TÀI LIỆU CHI TIẾT ĐẦY ĐỦ NHẤT TẠI:**
+> - [TAI_LIEU_BAN_GIAO_AGENT.md](file:///F:/stm8_rx_tx_test/TAI_LIEU_BAN_GIAO_AGENT.md): Tài liệu bàn giao kỹ thuật tổng thể cho Agent & Kỹ sư.
+> - [GHI_CHU_LOI_VA_LUU_Y.md](file:///F:/stm8_rx_tx_test/GHI_CHU_LOI_VA_LUU_Y.md): Sổ tay 22 lỗi kỹ thuật & giải pháp chi tiết.

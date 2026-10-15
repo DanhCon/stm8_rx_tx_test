@@ -254,6 +254,55 @@
 
 ---
 
+### ❌ Lỗi 3.13: Cảm biến khoảng cách siêu âm phản hồi chậm khi mới bật App và trễ nhịp cử động tay
+* **Hiện tượng:**
+  Khi mở App lên, mất hơn 1 giây cảm biến siêu âm mới hiện số. Khi đưa tay lại gần từ từ, cảm giác số liệu nhảy bị khựng hoặc trễ nhịp so với Biến trở.
+* **Nguyên nhân gốc rễ:**
+  1. Khi chưa xác nhận Online, ESP32 chỉ thăm dò mỗi 500ms một lần (`poll_interval = 500ms`) để tránh nghẽn các node khác khi rút cảm biến ra.
+  2. Ngưỡng lọc cử động tay đặt `abs(actual_dist_cm - last_dist_cm) > 2`: Khi nhích tay 1cm, ESP32 không bật cờ `state_changed`, bắt App phải đợi hết nhịp Heartbeat 100ms.
+  3. Cửa sổ đọc UART 40ms sát ngưỡng sóng dội tối đa 35ms khi không có vật cản trước mặt.
+* **Cách khắc phục chuẩn:**
+  1. Thăm dò thông minh thích ứng: Trong 5 giây đầu khởi động, thăm dò siêu nhanh `100ms/lần` để bắt nhịp ngay tức thì khi vừa bật App. Sau 5 giây nếu không cắm cảm biến thì mới lùi về `500ms`.
+  2. Hạ ngưỡng nhạy thành `abs >= 1`: Nhích nhẹ 1cm là ESP32 lập tức phát gói tin UDP lên App ngay trong mili-giây.
+  3. Mở rộng cửa sổ chờ lên `45ms` để hứng trọn gói tin phản hồi khi vật cản ở xa mà không bị mất gói.
+
+---
+
+### ❌ Lỗi 3.14: Phần mềm STVP báo lỗi "Verify failed at address 0x8000" khi nạp file .s19
+* **Hiện tượng:**
+  Bấm `Program -> Current tab` (Ctrl+P) trên phần mềm ST Visual Programmer (STVP) thì hiện hộp thoại cảnh báo vàng: `Verify failed at address 0x8000`.
+* **Nguyên nhân gốc rễ:**
+  1. Chip STM8 đang bị khóa bảo vệ đọc/ghi (`ROP - Read Out Protection = ON`) ở tab `OPTION BYTE`.
+  2. Bấm nạp khi đang đứng ở tab `OPTION BYTE` thay vì tab `PROGRAM MEMORY`.
+  3. Đang cắm cảm biến HC-SR04 hút dòng lớn từ mạch nạp ST-Link V2 làm sụt áp nguồn `3.3V` hoặc chân `NRST` bị lỏng tiếp xúc.
+* **Cách khắc phục chuẩn:**
+  1. Rút tạm chân nguồn của cảm biến HC-SR04 ra khi nạp code bằng ST-Link V2.
+  2. Ở STVP: Chuyển sang tab `OPTION BYTE`, nhìn dòng đầu tiên `ROP (Read Out Protection)`: nếu đang là `ON` thì đổi thành `OFF`, nhấn `Ctrl+P`. (Nếu đang là `OFF` mà vẫn lỗi: đổi sang `ON` -> `Ctrl+P` để xóa chip -> đổi ngược lại `OFF` -> `Ctrl+P`).
+  3. Chuyển lại tab `PROGRAM MEMORY`, chọn `File -> Open...` chọn file `.s19` và bấm `Ctrl+P`.
+
+---
+
+### ❌ Lỗi 3.15: Trình biên dịch Cosmic C báo lỗi "#error cpstm8 main.c:1 bad character"
+* **Hiện tượng:**
+  Khi biên dịch mã nguồn C của STM8 bằng `cxstm8.exe`, dòng 1 luôn báo lỗi `bad character` dù code nhìn hoàn toàn bình thường.
+* **Nguyên nhân gốc rễ:**
+  File `.c` bị lưu ở định dạng **UTF-8 with BOM** (dính 3 byte ẩn `0xEF 0xBB 0xBF` ở đầu file do PowerShell 5.1 `Set-Content -Encoding utf8` hoặc một số trình soạn thảo tự thêm vào). Trình tiền xử lý `cpstm8.exe` của Cosmic C chỉ hiểu mã nguồn ANSI thuần hoặc UTF-8 **không có BOM (No BOM)**.
+* **Cách khắc phục chuẩn:**
+  - Luôn lưu file `.c` bằng chuẩn UTF-8 No BOM (`[System.Text.UTF8Encoding]::new($false)` trong PowerShell hoặc dùng `replace_file_content` của IDE).
+
+---
+
+### ❌ Lỗi 3.16: App báo lỗi "HTTPConnectionPool(host='localhost', port=8000): Max retries exceeded" khi bấm Đăng nhập
+* **Hiện tượng:**
+  Mở giao diện App, nhập tài khoản bấm "Đăng nhập" thì hiện dòng chữ đỏ báo timeout kết nối đến `localhost:8000`.
+* **Nguyên nhân gốc rễ:**
+  Server Backend FastAPI (chạy trên cổng 8000) chưa được khởi động trước khi đăng nhập.
+* **Cách khắc phục chuẩn:**
+  - Chạy file `MO_APP_STEM.bat` (script này tự kiểm tra cổng 8000, nếu chưa có Backend thì tự bật Backend trước rồi mới mở App).
+  - Hoặc bấm đúp vào shortcut `Bat_Backend_STEM` ngoài Desktop để bật riêng cửa sổ Backend.
+
+---
+
 ## 4. QUY TẮC VÀNG KHI CHỈNH SỬA DỰ ÁN
 
 1. **Về Firmware STM8 & ESP32:**

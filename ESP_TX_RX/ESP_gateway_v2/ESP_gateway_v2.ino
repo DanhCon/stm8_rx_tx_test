@@ -587,8 +587,12 @@ void Master_Network_Loop() {
     // NODE 5: CẢM BIẾN KHOẢNG CÁCH HC-SR04 (ID 0x05)
     // ──────────────────────────────────────────
     static uint32_t last_dist_poll = 0;
-    // Khi đang online: quét liên tục; khi offline: chỉ thử thăm dò mỗi 500ms để tránh tốn thời gian chờ
-    if (slave_dist_online || (millis() - last_dist_poll >= 500)) {
+    // Thăm dò thông minh:
+    // - Khi đang Online: quét liên tục
+    // - Trong 5 giây đầu khởi động: thăm dò nhanh 100ms để bắt nhịp ngay tức thì khi bật App
+    // - Khi Offline sau 5s: thăm dò 500ms để nhường băng thông cho Nút và Biến trở
+    uint32_t poll_interval = (millis() < 5000) ? 100 : 500;
+    if (slave_dist_online || (millis() - last_dist_poll >= poll_interval)) {
         last_dist_poll = millis();
         clear_rx_buffer();
         tx_frame[0] = FRAME_HEADER; tx_frame[1] = ID_DISTANCE; tx_frame[2] = CMD_READ_DIST; 
@@ -600,7 +604,7 @@ void Master_Network_Loop() {
         uint8_t dist_frames_received = 0;
         uint8_t temp_dist_val = 0;
         bool real_dist_ack = false;
-        while ((millis() - wait_start) < 40) {
+        while ((millis() - wait_start) < 45) {
             while (NEURON_SERIAL.available()) {
                 uint8_t c = NEURON_SERIAL.read();
                 switch (parser_state) {
@@ -630,7 +634,8 @@ void Master_Network_Loop() {
         if (real_dist_ack) {
             if (slave_dist_online == 0) state_changed = true;
             slave_dist_online = 1; timeout_dist = 0;
-            if (abs(actual_dist_cm - last_dist_cm) > 2) {
+            // Nhạy theo từng 1 cm: nhích tay nhẹ là gửi UDP khẩn cấp ngay lập tức
+            if (abs(actual_dist_cm - last_dist_cm) >= 1) {
                 last_dist_cm = actual_dist_cm;
                 state_changed = true;
             }
