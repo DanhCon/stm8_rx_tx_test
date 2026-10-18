@@ -14,6 +14,13 @@ import socket
 import sys
 import time
 
+if hasattr(sys.stdout, "reconfigure"):
+    try:
+        sys.stdout.reconfigure(encoding="utf-8", errors="replace")
+        sys.stderr.reconfigure(encoding="utf-8", errors="replace")
+    except Exception:
+        pass
+
 TELEMETRY_PORT = 9999
 COMMAND_PORT   = 8888
 
@@ -37,6 +44,12 @@ def main():
     print(f"[OK] Đang lắng nghe Telemetry tại 0.0.0.0:{TELEMETRY_PORT}...")
     print(f"[!] Nhấn Ctrl+C để dừng chương trình.\n")
 
+    target_dev_id = sys.argv[1].strip() if len(sys.argv) > 1 else None
+    if target_dev_id:
+        print(f"[!] Đã cài đặt khóa mục tiêu: [{target_dev_id}]. Sẽ bỏ qua mọi bộ kit khác!")
+    else:
+        print("[*] Chế độ tự động: Sẽ tự động khóa vào bộ kit đầu tiên nhận diện được.")
+
     esp32_ip = None
     last_print = 0
 
@@ -50,9 +63,22 @@ def main():
             except Exception:
                 continue
 
+            # Lấy Device ID của gói tin
+            dev_id = str(packet.get("gateway", {}).get("device_id") or packet.get("device_id") or "UNKNOWN").strip()
+
+            # LỌC GÓI TIN ĐÍCH DANH (DEVICE FILTERING):
+            if target_dev_id:
+                if dev_id.upper() != target_dev_id.upper():
+                    # Gói tin từ bộ kit khác -> BỎ QUA NGAY!
+                    continue
+            else:
+                # Tự động khóa vào bộ kit đầu tiên
+                target_dev_id = dev_id
+                print(f"[OK] Đã tự động ghép nối độc quyền với bộ kit: [{target_dev_id}] tại {esp32_ip}")
+
             # Bỏ qua gói tin bắt tay HELLO ban đầu
             if packet.get("type") == "HELLO":
-                print(f"[GATEWAY] Nhận diện ESP32 Gateway ({packet.get('device_id')}) tại IP: {esp32_ip}")
+                print(f"[GATEWAY] Nhận diện ESP32 Gateway [{dev_id}] tại IP: {esp32_ip}")
                 continue
 
             # ----------------------------------------------------

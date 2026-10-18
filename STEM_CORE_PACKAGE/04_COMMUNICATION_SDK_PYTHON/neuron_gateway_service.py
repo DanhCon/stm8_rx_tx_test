@@ -1,14 +1,19 @@
 """
 NeuronGatewayService — Background UDP Bridge giữa ESP32 và Ứng dụng Python.
-Tương thích 100% hai chiều với cả Gateway V2 (5 nodes) và Gateway V3 (12 nodes).
+Hỗ trợ quản lý Định danh Bộ Kit (Device ID Pairing) và lọc dữ liệu chống nhiễu:
+- Mỗi ESP32 có Device ID riêng (Ví dụ: NHOM_01, KIT_A12B).
+- Khóa ghép đôi (Device Lock): Chỉ nhận Telemetry và gửi lệnh đến đúng Device ID đã chọn.
+- Tự động bỏ qua các gói tin từ các bộ kit khác (NHOM_02, NHOM_03) trên cùng WiFi.
+- Tương thích 100% hai chiều với cả Gateway V2 (5 nodes) và Gateway V3 (12 nodes).
 
 Chạy trong daemon thread riêng. Controller đăng ký callbacks:
-    on_connected(ip)      → ESP32 vừa online
-    on_disconnected()     → ESP32 offline (timeout 6s)
-    on_telemetry(data)    → Nhận packet telemetry mới (10Hz)
+    on_connected(ip, device_id) → ESP32 vừa online
+    on_disconnected()           → ESP32 offline (timeout 6s)
+    on_telemetry(data)          → Nhận packet telemetry mới (10Hz)
 """
 import json
 import logging
+import os
 import socket
 import threading
 import time
@@ -22,7 +27,7 @@ _DISCONNECT_TIMEOUT = 6.0
 
 class NeuronGatewayService:
 
-    def __init__(self):
+    def __init__(self, target_device_id: str | None = None):
         self._sock:     socket.socket | None = None
         self._cmd_sock: socket.socket | None = None
         self._thread:   threading.Thread | None = None
@@ -30,6 +35,21 @@ class NeuronGatewayService:
         self._connected        = False
         self._last_packet_time = 0.0
         self._esp32_ip:  str | None = None
+        self._connected_device_id: str | None = None
+
+        # Cấu hình Khóa thiết bị mục tiêu (Device Pairing Lock)
+        if target_device_id:
+            self._target_device_id: str | None = target_device_id.strip()
+        else:
+            # Tự động nạp từ biến môi trường hoặc file target_device.json nếu có
+            env_id = os.environ.get("NEURON_DEVICE_ID")
+            if env_id:
+                self._target_device_id = env_id.strip()
+            else:
+                self._target_device_id = self._load_saved_target_device()
+
+        # Danh sách tất cả các bộ kit tìm thấy trên mạng: {dev_id: {ip, rssi, last_seen, uptime_s}}
+        self._discovered_devices: dict[str, dict] = {}
 
         # Trạng thái Online của toàn bộ 12 Nodes trên mạng vòng Ring
         self._node_online: dict[str, bool] = {
@@ -48,11 +68,11 @@ class NeuronGatewayService:
         }
 
         # Callbacks sự kiện
-        self.on_connected:    callable | None = None   # fn(ip: str)
+        self.on_connected:    callable | None = None   # fn(ip: str, device_id: str)
         self.on_disconnected: callable | None = None   # fn()
         self.on_telemetry:    callable | None = None   # fn(data: dict)
 
-    # ── Public API ────────────────────────────────────────────────────
+    # ── Public API Quản lý Thiết bị & Ghép Nối ─────────────────────────
 
     @property
     def is_connected(self) -> bool:
@@ -62,11 +82,77 @@ class NeuronGatewayService:
     def esp32_ip(self) -> str | None:
         return self._esp32_ip
 
+    @property
+    def target_device_id(self) -> str | None:
+        """Device ID mà Service đang khóa giao tiếp"""
+        return self._target_device_id
+
+    @property
+    def connected_device_id(self) -> str | None:
+        """Device ID thực tế của bo ESP32 đang kết nối"""
+        return self._connected_device_id
+
+    def set_target_device(self, device_id: str | None, save_to_disk: bool = False) -> None:
+        """
+        Khóa kết nối độc quyền với 1 bộ kit cụ thể (ví dụ: 'NHOM_01').
+        Gói tin từ các bộ kit khác (NHOM_02, NHOM_03) sẽ bị loại bỏ hoàn toàn.
+        """
+        new_id = device_id.strip() if device_id else None
+        if new_id != self._target_device_id:
+            self._target_device_id = new_id
+            self._connected = False
+            self._esp32_ip = None
+            self._connected_device_id = None
+            logger.info("[NeuronGW] Set target device: %s", new_id)
+
+            if save_to_disk and new_id:
+                try:
+                    with open("target_device.json", "w", encoding="utf-8") as f:
+                        json.dump({"target_device_id": new_id}, f, indent=2)
+                except Exception as e:
+                    logger.warning("[NeuronGW] Could not save target_device.json: %s", e)
+
+    def get_discovered_devices(self) -> dict[str, dict]:
+        """Trả về danh sách tất cả các bộ kit nhìn thấy trên mạng WiFi"""
+        now = time.monotonic()
+        result = {}
+        for dev_id, info in self._discovered_devices.items():
+            result[dev_id] = {
+                "device_id": dev_id,
+                "ip": info.get("ip"),
+                "rssi": info.get("rssi", 0),
+                "uptime_s": info.get("uptime_s", 0),
+                "is_online": (now - info.get("last_seen", 0) < _DISCONNECT_TIMEOUT),
+                "is_active_target": (self._target_device_id and dev_id.upper() == self._target_device_id.upper())
+            }
+        return result
+
+    @staticmethod
+    def _load_saved_target_device() -> str | None:
+        """Đọc device ID đã lưu trong target_device.json nếu có"""
+        search_paths = [
+            "target_device.json",
+            os.path.join(os.path.dirname(__file__), "target_device.json"),
+            os.path.join(os.path.dirname(__file__), "..", "target_device.json"),
+        ]
+        for p in search_paths:
+            if os.path.exists(p):
+                try:
+                    with open(p, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        tid = data.get("target_device_id")
+                        if tid:
+                            return str(tid).strip()
+                except Exception:
+                    pass
+        return None
+
     def start(self) -> None:
         self._thread = threading.Thread(
             target=self._run, daemon=True, name="NeuronGateway")
         self._thread.start()
-        logger.info("[NeuronGW] Service started — listening on 0.0.0.0:%d", _TELEMETRY_PORT)
+        logger.info("[NeuronGW] Service started — listening on 0.0.0.0:%d (Target: %s)",
+                    _TELEMETRY_PORT, self._target_device_id or "AUTO_LOCK")
 
     def stop(self) -> None:
         if self._sock:
@@ -77,7 +163,6 @@ class NeuronGatewayService:
 
     def node_online(self, node: str) -> bool:
         """Kiểm tra trạng thái online của một node cụ thể"""
-        # Hỗ trợ cả tên 'dist_node' và 'distance_node'
         if node in ("dist_node", "distance_node"):
             return self._connected and (self._node_online.get("distance_node", False) or self._node_online.get("dist_node", False))
         return self._connected and self._node_online.get(node, False)
@@ -120,15 +205,15 @@ class NeuronGatewayService:
 
     def send_motor(self, direction: str, speed_pct: int = 100) -> None:
         """
-        Điều khiển Động cơ DC:
-        direction: 'FWD' (Tiến), 'REV' (Lùi), 'STOP' (Dừng), 'BRAKE' (Phanh)
-        speed_pct: 1 đến 100 (%)
+        Điều khiển động cơ DC:
+        direction: 'FWD' (Tiến), 'REV' (Lùi), 'STOP' (Dừng), 'BRAKE' (Phanh điện từ)
+        speed_pct: Tốc độ 1 - 100%
         """
-        spd = max(1, min(100, int(speed_pct)))
         d = direction.upper()
+        spd = max(1, min(100, int(speed_pct)))
         if d in ("FWD", "FORWARD", "TIEN"):
             self._send(f"MOTOR_FWD:{spd}")
-        elif d in ("REV", "REVERSE", "LUI", "BACK"):
+        elif d in ("REV", "BACKWARD", "REVERSE", "LUI"):
             self._send(f"MOTOR_REV:{spd}")
         elif d in ("BRAKE", "PHANH"):
             self._send("MOTOR_BRAKE")
@@ -172,7 +257,13 @@ class NeuronGatewayService:
         elif 1 <= line <= 4:
             self._send(f"OLED{line}:{str(text)[:16]}")
 
-    # ── 7. LỆNH TÙY BIẾN HOẶC RESET HỆ THỐNG ─────────────────────────
+    # ── 7. LỆNH TÙY BIẾN HOẶC ĐỔI DEVICE ID ───────────────────────────
+
+    def set_esp32_device_id(self, new_device_id: str) -> None:
+        """Gửi lệnh đổi Device ID trên bo ESP32 (lưu vĩnh viễn vào NVS)"""
+        nid = new_device_id.strip()
+        self._send(f"SET_ID:{nid}")
+        self._target_device_id = nid
 
     def send_command(self, raw_cmd: str) -> None:
         """Gửi chuỗi lệnh UDP tùy biến trực tiếp xuống ESP32"""
@@ -192,8 +283,15 @@ class NeuronGatewayService:
             if self._cmd_sock is None:
                 self._cmd_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
                 self._cmd_sock.setsockopt(socket.SOL_SOCKET, socket.SO_BROADCAST, 1)
-            self._cmd_sock.sendto(cmd.encode("utf-8"), (self._esp32_ip, _COMMAND_PORT))
-            logger.debug("[NeuronGW] TX UDP: '%s' -> %s:%d", cmd, self._esp32_ip, _COMMAND_PORT)
+
+            # Đóng gói kèm tiền tố @DEVICE_ID:CMD để đảm bảo an toàn tuyệt đối 2 lớp
+            if self._target_device_id and not cmd.startswith("@"):
+                wire_cmd = f"@{self._target_device_id}:{cmd}"
+            else:
+                wire_cmd = cmd
+
+            self._cmd_sock.sendto(wire_cmd.encode("utf-8"), (self._esp32_ip, _COMMAND_PORT))
+            logger.debug("[NeuronGW] TX UDP: '%s' -> %s:%d", wire_cmd, self._esp32_ip, _COMMAND_PORT)
         except Exception as exc:
             logger.warning("[NeuronGW] Send error: %s", exc)
 
@@ -217,26 +315,55 @@ class NeuronGatewayService:
             sock.close()
 
     def _handle_packet(self, raw: bytes, addr: tuple) -> None:
-        now           = time.monotonic()
-        was_connected = self._connected
-        ip            = addr[0]
-
-        self._esp32_ip         = ip
-        self._last_packet_time = now
-        self._connected        = True
-
-        if not was_connected:
-            logger.info("[NeuronGW] ESP32 CONNECTED: %s", ip)
-            if self.on_connected:
-                self.on_connected(ip)
-
         try:
             data = json.loads(raw.decode("utf-8").strip().rstrip("\x00"))
         except Exception:
             return
 
+        now = time.monotonic()
+        ip  = addr[0]
+
+        gateway_info = data.get("gateway", {})
+        dev_id = str(gateway_info.get("device_id") or data.get("device_id") or "UNKNOWN").strip()
+
+        # Lưu thông tin bộ kit vào danh sách thiết bị tìm thấy trên mạng
+        self._discovered_devices[dev_id] = {
+            "ip": ip,
+            "device_id": dev_id,
+            "rssi": gateway_info.get("wifi_rssi", 0),
+            "uptime_s": gateway_info.get("uptime_s", 0),
+            "last_seen": now,
+        }
+
+        # ── KHÓA THIẾT BỊ MỤC TIÊU (DEVICE LOCKING & FILTERING) ─────────
+        # Nếu người dùng đã chỉ định target_device_id (ví dụ 'NHOM_01'):
+        # Bất kỳ gói tin nào KHÔNG PHẢI của NHOM_01 sẽ bị HỦY BỎ NGAY LẬP TỨC!
+        if self._target_device_id:
+            if dev_id.upper() != self._target_device_id.upper():
+                # BỎ QUA GÓI TIN! Không làm giật màn hình, không cập nhật IP sai!
+                return
+        else:
+            # Nếu chưa chỉ định, tự động khóa vào bộ kit đầu tiên gửi dữ liệu đến
+            self._target_device_id = dev_id
+            logger.info("[NeuronGW] Auto-locked to first seen kit: %s (%s)", dev_id, ip)
+
+        was_connected = self._connected
+        self._esp32_ip             = ip
+        self._connected_device_id  = dev_id
+        self._last_packet_time     = now
+        self._connected            = True
+
+        if not was_connected:
+            logger.info("[NeuronGW] CONNECTED to kit [%s] at %s", dev_id, ip)
+            if self.on_connected:
+                # Gọi callback với cả IP và Device ID
+                try:
+                    self.on_connected(ip, dev_id)
+                except TypeError:
+                    self.on_connected(ip)
+
         if data.get("type") == "HELLO":
-            logger.info("[NeuronGW] HELLO from %s (IP: %s)", data.get("device_id"), ip)
+            logger.info("[NeuronGW] HELLO from [%s] (IP: %s)", dev_id, ip)
             return
 
         # Cập nhật trạng thái online của các node (Tương thích cả V2 dict và V3 int/bool)
@@ -247,10 +374,8 @@ class NeuronGatewayService:
                 node_val = topology.get("dist_node")
 
             if isinstance(node_val, dict):
-                # Chuẩn Gateway V2: {"online": 1, ...}
                 self._node_online[node] = (node_val.get("online", 0) == 1)
             elif isinstance(node_val, (int, bool)):
-                # Chuẩn Gateway V3: "led_node": 1
                 self._node_online[node] = (node_val == 1) or (node_val is True)
 
         if self.on_telemetry:
@@ -261,6 +386,7 @@ class NeuronGatewayService:
             if time.monotonic() - self._last_packet_time > _DISCONNECT_TIMEOUT:
                 self._connected = False
                 self._esp32_ip  = None
-                logger.info("[NeuronGW] ESP32 DISCONNECTED (timeout)")
+                logger.info("[NeuronGW] Kit [%s] DISCONNECTED (timeout)", self._connected_device_id)
+                self._connected_device_id = None
                 if self.on_disconnected:
                     self.on_disconnected()

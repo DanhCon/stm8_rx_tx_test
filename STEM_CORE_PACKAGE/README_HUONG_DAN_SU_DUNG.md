@@ -59,10 +59,12 @@ STEM_CORE_PACKAGE/
    - **Phiên bản V2 cũ:** `01_ESP32_GATEWAY_FIRMWARE/ESP_gateway_v2.ino` (hỗ trợ 5 node cơ bản).
 2. Chọn Board: **ESP32 Dev Module** (hoặc ESP32-WROOM-32).
 3. Bấm **Upload** lên mạch ESP32.
-4. *Lưu ý cấu hình WiFi:*
-   - Khi chưa có WiFi, ESP32 sẽ phát điểm truy cập tên: `Neuron_Gateway_Config`.
-   - Dùng điện thoại/máy tính kết nối vào và truy cập `192.168.4.1` để nhập tên WiFi & Mật khẩu nhà bạn.
-   - Sau khi kết nối WiFi thành công, ESP32 sẽ tự động truyền dữ liệu lên toàn bộ mạng LAN qua UDP.
+4. *Lưu ý cấu hình WiFi & Đặt mã nhóm (Device ID):*
+   - Khi chưa có WiFi, ESP32 sẽ phát điểm truy cập tên: `Neuron_<ID>_Config` (ví dụ: `Neuron_KIT_A12B_Config`).
+   - Dùng điện thoại/máy tính kết nối vào và truy cập `192.168.4.1` để:
+     + Đặt tên nhóm/bộ kit (Device ID): ví dụ `NHOM_01`, `BAN_02` (mặc định: `KIT_xxxx` theo MAC chip).
+     + Nhập tên WiFi & Mật khẩu.
+   - Nhờ có Device ID riêng, nhiều bộ kit có thể dùng chung 1 mạng WiFi trong phòng học mà không bao giờ bị điều khiển chéo hay lẫn dữ liệu!
 
 ### 2. Nạp cho 6 module STM8 (Bằng mạch nạp ST-Link V2 & STVP):
 1. Cắm 4 chân ST-Link V2 (`3.3V`, `GND`, `SWIM`, `NRST`) vào bo STM8S103F3.
@@ -189,6 +191,8 @@ Bất kỳ ứng dụng nào (Web, Node.js, Python, C#, Flutter) chỉ cần gia
 | **`"LCD1:<text>"`** / **`"LCD2:<text>"`** | Ghi chuỗi văn bản 16 ký tự lên Dòng 1 / Dòng 2 LCD (Node 6) |
 | **`"OLED_ON/OFF/CLEAR/INVERT/SPLASH"`** | Điều khiển màn hình OLED 0.96" SSD1306 (Node 9) |
 | **`"SOIL_SET_THRESH:<1-99>"`** | Cài đặt ngưỡng cảnh báo khô (%) cho Cảm biến độ ẩm đất (Node 10) |
+| **`"SET_ID:<TEN_MOI>"`** | Đổi mã Device ID của bo ESP32 từ xa (Ví dụ: `SET_ID:NHOM_01`) |
+| **`"GET_ID"`** | Đọc mã Device ID hiện tại của bo ESP32 |
 | **`"RESET_CONFIG"`** | Xóa thông tin WiFi đã lưu trên ESP32 để cài đặt lại |
 
 ---

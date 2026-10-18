@@ -52,6 +52,7 @@
 #define GESTURE_LONG_PRESS    0x53
 #define CMD_GET_COUNTER       0x54
 #define CMD_RESET_COUNTER     0x55
+#define GESTURE_RAW_PRESSED   0x56
 
 /* Biến nhận diện lệnh từ ngắt UART */
 extern volatile unsigned char global_btn_cmd;
@@ -134,8 +135,8 @@ void main(void)
                     ack_val = latched_gesture;
                     latched_gesture = 0; /* Đọc xong tự động xóa chốt */
                 } else {
-                    /* Nếu không có sự kiện chốt, trả về trạng thái vật lý thực tế */
-                    ack_val = current_raw_pressed ? GESTURE_SINGLE_CLICK : GESTURE_IDLE;
+                    /* Nếu không có sự kiện chốt, trả về trạng thái vật lý thực tế: 0x56 nếu giữ, 0x50 nếu nhả */
+                    ack_val = current_raw_pressed ? GESTURE_RAW_PRESSED : GESTURE_IDLE;
                 }
             }
             else if (cmd == CMD_GET_COUNTER) {
@@ -153,7 +154,7 @@ void main(void)
                     ack_val = latched_gesture;
                     latched_gesture = 0;
                 } else {
-                    ack_val = current_raw_pressed ? GESTURE_SINGLE_CLICK : GESTURE_IDLE;
+                    ack_val = current_raw_pressed ? GESTURE_RAW_PRESSED : GESTURE_IDLE;
                 }
             }
 

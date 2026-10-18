@@ -26,6 +26,7 @@
 Preferences preferences;    
 WebServer server(80);       
 
+char device_id[32] = "KIT_01";       // Mã nhận diện duy nhất của bộ kit (có thể đặt tên NHOM_01)
 char pc_ip[20] = "255.255.255.255";  // Mặc định broadcast hoặc IP tự học từ PC
 const int pc_port = 9999;           // Cổng Telemetry PC lắng nghe
 const int local_port = 8888;        // Cổng nhận lệnh điều khiển trên ESP32
@@ -86,6 +87,8 @@ uint8_t actual_led_mode = 0;
 
 // Slave 2: Nút nhấn thông minh (Gestures)
 uint8_t btn_last_gesture = 0x50; // 0x50: Idle, 0x51: Single, 0x52: Double, 0x53: Long Press
+uint8_t actual_btn_raw   = 0;    // 0: Nhả, 1: Giữ (Trạng thái vật lý thực tế)
+bool is_smart_button     = false; // Tự động nhận diện bản Smart Button (0x56)
 uint32_t btn_single_count = 0;
 uint32_t btn_double_count = 0;
 uint32_t btn_long_count   = 0;
@@ -270,6 +273,8 @@ const char HTML_PAGE[] PROGMEM = R"rawliteral(
         <h2>Neuron Gateway V3</h2>
         <p style="font-size:12px; color:#94a3b8; text-align:center;">12-Node Ring | Adaptive Multi-Rate Polling</p>
         <form action="/save" method="POST">
+            <label>Tên Bộ Kit / Mã Nhóm (Device ID):</label>
+            <input type="text" name="devid" placeholder="Ví dụ: NHOM_01 (Mặc định: KIT_xxxx)">
             <label>Tên WiFi (SSID):</label>
             <input type="text" name="ssid" required placeholder="Nhập tên mạng WiFi">
             <label>Mật khẩu WiFi:</label>
@@ -292,11 +297,14 @@ void handleSave() {
         String s = server.arg("ssid");
         String p = server.arg("pass");
         String pip = server.arg("pcip");
+        String did = server.arg("devid");
+        did.trim();
 
         preferences.begin("config", false);
         preferences.putString("ssid", s);
         preferences.putString("pass", p);
         if (pip.length() > 0) preferences.putString("pcip", pip);
+        if (did.length() > 0) preferences.putString("devid", did);
         preferences.end();
 
         server.send(200, "text/html", "<h3 style='font-family:sans-serif; text-align:center; padding-top:40px;'>Da luu thanh cong! ESP32 dang khoi dong lai...</h3>");
@@ -314,9 +322,6 @@ void Check_UDP_Commands() {
     int packetSize = udp.parsePacket();
     if (packetSize) {
         IPAddress sender_ip = udp.remoteIP();
-        if (sender_ip[0] != 0 && sender_ip[0] != 255) {
-            sender_ip.toString().toCharArray(pc_ip, sizeof(pc_ip));
-        }
 
         char rx_buf[128] = {0};
         int len = udp.read(rx_buf, sizeof(rx_buf) - 1);
@@ -325,7 +330,37 @@ void Check_UDP_Commands() {
         String cmd = String(rx_buf);
         cmd.trim();
 
-        Serial.printf("[UDP Command] Tu %s: %s\n", pc_ip, cmd.c_str());
+        // --- KHÓA AN TOÀN ĐÍCH DANH (DEVICE ID FILTERING) ---
+        // Lệnh có thể kèm tiền tố: @NHOM_01:LED_ON hoặc @KIT_1234:ON hoặc @ALL:RESET_CONFIG
+        bool should_update_pc_ip = false;
+        if (cmd.startsWith("@")) {
+            int colon = cmd.indexOf(':');
+            if (colon > 1) {
+                String target_id = cmd.substring(1, colon);
+                target_id.trim();
+                String actual_cmd = cmd.substring(colon + 1);
+                actual_cmd.trim();
+                if (!target_id.equalsIgnoreCase(device_id) && !target_id.equalsIgnoreCase("ALL")) {
+                    // Lệnh này gửi cho bộ kit khác trên cùng WiFi -> BỎ QUA NGAY LẬP TỨC, không cập nhật pc_ip!
+                    return;
+                }
+                cmd = actual_cmd;
+                should_update_pc_ip = true;
+            } else {
+                // Tiền tố @ nhưng không đúng cú pháp -> Bỏ qua ngay
+                return;
+            }
+        } else {
+            // Lệnh không có tiền tố @ (như "ON", "OFF" từ ElectroBlocks / App / Hercules gửi trực tiếp)
+            should_update_pc_ip = true;
+        }
+
+        IPAddress current_broadcast = ~WiFi.subnetMask() | WiFi.localIP();
+        if (should_update_pc_ip && sender_ip[0] != 0 && sender_ip[0] != 255 && sender_ip != current_broadcast) {
+            sender_ip.toString().toCharArray(pc_ip, sizeof(pc_ip));
+        }
+
+        Serial.printf("[UDP Command] [%s] Tu %s: %s\n", device_id, pc_ip, cmd.c_str());
 
         // --- ĐIỀU KHIỂN ĐÈN LED (SLAVE 1 - SMART EFFECTS) ---
         if (cmd.equals("LED_ON") || cmd.equals("ON")) {
@@ -334,7 +369,7 @@ void Check_UDP_Commands() {
         }
         else if (cmd.equals("LED_OFF") || cmd.equals("OFF")) {
             target_led_mode = 0x00;
-            Queue_Command(ID_LED, 0x00);
+            Queue_Command(ID_LED, 0x30);
         }
         else if (cmd.equals("LED_BLINK") || cmd.equals("BLINK")) {
             target_led_mode = 0x10;
@@ -438,6 +473,27 @@ void Check_UDP_Commands() {
         else if (cmd.equals("OLED_INVERT")) { Queue_Command(ID_OLED, 0x83); }
         else if (cmd.equals("OLED_SPLASH")) { Queue_Command(ID_OLED, 0x84); }
 
+        // --- LỆNH CÀI ĐẶT & ĐỌC DEVICE ID TỪ XA ---
+        else if (cmd.startsWith("SET_ID:")) {
+            String new_id = cmd.substring(7);
+            new_id.trim();
+            if (new_id.length() > 0 && new_id.length() < 30) {
+                preferences.begin("config", false);
+                preferences.putString("devid", new_id);
+                preferences.end();
+                new_id.toCharArray(device_id, sizeof(device_id));
+                Serial.printf("[CONFIG] Da cap nhat Device ID thanh: '%s'\n", device_id);
+                Send_Telemetry_To_PC();
+            }
+        }
+        else if (cmd.equals("GET_ID")) {
+            char id_reply[80];
+            snprintf(id_reply, sizeof(id_reply), "{\"type\":\"DEVICE_ID\",\"device_id\":\"%s\"}", device_id);
+            udp.beginPacket(pc_ip, pc_port);
+            udp.print(id_reply);
+            udp.endPacket();
+        }
+
         // --- LỆNH XÓA CẤU HÌNH WIFI TỪ XA ---
         else if (cmd.equals("RESET_CONFIG")) {
             Serial.println("[CONFIG] Nhan lenh RESET_CONFIG -> Khoi dong lai ve AP...");
@@ -461,7 +517,7 @@ void Send_Telemetry_To_PC() {
     float angle      = ((float)actual_pot_value / 255.0) * 270.0;
     int32_t rssi     = WiFi.RSSI();
 
-    uint8_t btn_raw         = (btn_last_gesture != 0x50) ? 1 : 0;
+    uint8_t btn_raw         = actual_btn_raw;
     uint8_t led_actual_bool = (actual_led_mode > 0) ? 1 : 0;
     uint8_t led_target_bool = (target_led_mode > 0) ? 1 : 0;
     uint8_t buz_actual_bool = (actual_buz_state > 0) ? 1 : 0;
@@ -470,7 +526,7 @@ void Send_Telemetry_To_PC() {
     snprintf(udp_msg, sizeof(udp_msg),
         "{"
           "\"timestamp\":%lu,"
-          "\"gateway\":{\"device_id\":\"NEURON_GW_V3\",\"version\":\"V3_CENTRAL_INTEL\",\"wifi_rssi\":%d,\"uptime_s\":%lu},"
+          "\"gateway\":{\"device_id\":\"%s\",\"version\":\"V3_CENTRAL_INTEL\",\"wifi_rssi\":%d,\"uptime_s\":%lu},"
           "\"network_topology\":{"
             "\"led_node\":{\"online\":%d,\"timeout_cnt\":0},"
             "\"button_node\":{\"online\":%d,\"timeout_cnt\":0},"
@@ -505,7 +561,7 @@ void Send_Telemetry_To_PC() {
           "}"
         "}",
         millis(),
-        rssi, millis() / 1000,
+        device_id, rssi, millis() / 1000,
         online_led, online_btn, online_buz, online_pot,
         online_dist, online_dist, online_lcd, online_motor, online_servo,
         online_oled, online_soil, online_dht11, online_dht22,
@@ -544,8 +600,23 @@ void setup() {
     String saved_ssid = preferences.getString("ssid", "");
     String saved_pass = preferences.getString("pass", "");
     String nvs_ip     = preferences.getString("pcip", "");
+    String nvs_id     = preferences.getString("devid", "");
+
+    // Khởi tạo Device ID mặc định theo 2 byte cuối của MAC nếu chưa từng đặt tên
+    uint8_t mac[6];
+    WiFi.macAddress(mac);
+    char default_id[32];
+    snprintf(default_id, sizeof(default_id), "KIT_%02X%02X", mac[4], mac[5]);
+
+    if (nvs_id.length() > 0) {
+        nvs_id.toCharArray(device_id, sizeof(device_id));
+    } else {
+        strncpy(device_id, default_id, sizeof(device_id));
+    }
     if (nvs_ip != "") nvs_ip.toCharArray(pc_ip, sizeof(pc_ip));
     preferences.end();
+
+    Serial.printf("[SYSTEM] Device ID: %s (MAC: %s)\n", device_id, WiFi.macAddress().c_str());
 
     bool wifi_connected = false;
 
@@ -562,15 +633,12 @@ void setup() {
 
         if (WiFi.status() == WL_CONNECTED) {
             wifi_connected = true;
-            IPAddress broadcast = WiFi.localIP();
-            broadcast[3] = 255;
+            IPAddress broadcast = ~WiFi.subnetMask() | WiFi.localIP();
 
             IPAddress parsed_ip;
             bool same_subnet = false;
             if (nvs_ip != "" && parsed_ip.fromString(nvs_ip)) {
-                if (parsed_ip[0] == WiFi.localIP()[0] && 
-                    parsed_ip[1] == WiFi.localIP()[1] && 
-                    parsed_ip[2] == WiFi.localIP()[2]) {
+                if ((parsed_ip & WiFi.subnetMask()) == (WiFi.localIP() & WiFi.subnetMask())) {
                     same_subnet = true;
                 }
             }
@@ -586,7 +654,9 @@ void setup() {
 
             udp.begin(local_port);
             udp.beginPacket(pc_ip, pc_port);
-            udp.print("{\"type\":\"HELLO\",\"device_id\":\"NEURON_GW_V3\",\"tier_polling\":true}");
+            char hello_msg[128];
+            snprintf(hello_msg, sizeof(hello_msg), "{\"type\":\"HELLO\",\"device_id\":\"%s\",\"tier_polling\":true}", device_id);
+            udp.print(hello_msg);
             udp.endPacket();
         }
     }
@@ -594,8 +664,10 @@ void setup() {
     if (!wifi_connected) {
         is_ap_mode = true;
         WiFi.mode(WIFI_AP);
-        WiFi.softAP("Neuron_Gateway_V3_Config");
-        Serial.println("\n[AP Mode] Phat AP 'Neuron_Gateway_V3_Config'");
+        char ap_name[40];
+        snprintf(ap_name, sizeof(ap_name), "Neuron_%s_Config", device_id);
+        WiFi.softAP(ap_name);
+        Serial.printf("\n[AP Mode] Phat AP '%s'\n", ap_name);
         Serial.println("[AP Mode] Vao IP: 192.168.4.1 de cau hinh WiFi");
 
         server.on("/", HTTP_GET, handleRoot);
@@ -634,9 +706,15 @@ void Master_Network_Loop() {
             if (p.target_id == ID_OLED) online_oled = 1;
         } else {
             uint8_t ack_res = 0;
-            if (Send_Query_Dual_Frame(p.target_id, p.cmd_data, &ack_res, 18)) {
-                if (p.target_id == ID_LED)   online_led = 1;
-                if (p.target_id == ID_BUZZER) online_buz = 1;
+            if (Send_Query_Dual_Frame(p.target_id, p.cmd_data, &ack_res, 25)) {
+                if (p.target_id == ID_LED) {
+                    online_led = 1;
+                    actual_led_mode = (p.cmd_data == 0x30 || p.cmd_data == 0x00) ? 0 : 1;
+                }
+                if (p.target_id == ID_BUZZER) {
+                    online_buz = 1;
+                    actual_buz_state = target_buz_state;
+                }
                 if (p.target_id == ID_MOTOR) online_motor = 1;
                 if (p.target_id == ID_SERVO) online_servo = 1;
                 if (p.target_id == ID_LCD)   online_lcd = 1;
@@ -655,30 +733,47 @@ void Master_Network_Loop() {
 
         // 1.1. NÚT NHẤN THÔNG MINH (SLAVE 2) - GESTURES
         uint8_t btn_res = 0;
-        if (Send_Query_Dual_Frame(ID_BUTTON, 0x50, &btn_res, 16)) {
+        if (Send_Query_Dual_Frame(ID_BUTTON, 0x50, &btn_res, 25)) {
             online_btn = 1; timeout_btn = 0;
             if (btn_res != btn_last_gesture) {
                 btn_last_gesture = btn_res;
                 if (btn_res == 0x51) {
                     btn_single_count++; btn_total_count++;
                     btn_gesture_str = "SINGLE_CLICK";
+                    if (!is_smart_button) {
+                        actual_btn_raw = 1; // Nút cơ bản: 0x51 là trạng thái đang nhấn
+                    } else {
+                        actual_btn_raw = 0; // Smart button: 0x51 là sự kiện chốt sau khi đã nhả phím
+                    }
                     state_changed = true;
                     Serial.printf("\n>>> [GESTURE] NUT NHAN DON (Single Click #%lu) <<<\n", btn_single_count);
                 }
                 else if (btn_res == 0x52) {
+                    is_smart_button = true;
                     btn_double_count++; btn_total_count++;
                     btn_gesture_str = "DOUBLE_CLICK";
+                    actual_btn_raw = 0;
                     state_changed = true;
                     Serial.printf("\n>>> [GESTURE] NUT NHAN DUP (Double Click #%lu) <<<\n", btn_double_count);
                 }
                 else if (btn_res == 0x53) {
+                    is_smart_button = true;
                     btn_long_count++; btn_total_count++;
                     btn_gesture_str = "LONG_PRESS";
+                    actual_btn_raw = 1; // Nhấn giữ: nút vẫn đang được bấm giữ vật lý
                     state_changed = true;
                     Serial.printf("\n>>> [GESTURE] NUT NHAN GIU (Long Press #%lu) <<<\n", btn_long_count);
                 }
+                else if (btn_res == 0x56) {
+                    is_smart_button = true;
+                    actual_btn_raw = 1;
+                    btn_gesture_str = "RAW_PRESSED";
+                    state_changed = true;
+                }
                 else if (btn_res == 0x50) {
+                    actual_btn_raw = 0;
                     btn_gesture_str = "IDLE";
+                    state_changed = true;
                 }
             }
         } else {
@@ -689,10 +784,10 @@ void Master_Network_Loop() {
 
         // 1.2. BIẾN TRỞ XOAY B10K (SLAVE 4)
         uint8_t pot_res = 0;
-        if (Send_Query_Dual_Frame(ID_POT, 0x60, &pot_res, 16)) {
+        if (Send_Query_Dual_Frame(ID_POT, 0x60, &pot_res, 25)) {
             online_pot = 1; timeout_pot = 0;
             actual_pot_value = pot_res;
-            if (abs(actual_pot_value - last_pot_value) >= 1) {
+            if (abs(actual_pot_value - last_pot_value) >= 2) {
                 last_pot_value = actual_pot_value;
                 state_changed = true;
             }
@@ -712,7 +807,7 @@ void Master_Network_Loop() {
             if (Send_Query_Dual_Frame(ID_DISTANCE, 0x70, &dist_res, 40)) {
                 online_dist = 1; timeout_dist = 0;
                 actual_dist_cm = dist_res;
-                if (abs(actual_dist_cm - last_dist_cm) >= 1) {
+                if (abs(actual_dist_cm - last_dist_cm) >= 2) {
                     last_dist_cm = actual_dist_cm;
                     state_changed = true;
                 }
@@ -795,10 +890,16 @@ void Master_Network_Loop() {
     // BƯỚC 4: GỬI GÓI TIN TELEMETRY LÊN MÁY TÍNH
     // ----------------------------------------------------
     static uint32_t last_udp_telemetry = 0;
+    static bool pending_state_changed = false;
     const uint32_t TELEMETRY_HEARTBEAT = 100; // 100ms (10Hz mượt mà)
 
-    if (state_changed || (now - last_udp_telemetry >= TELEMETRY_HEARTBEAT)) {
+    if (state_changed) {
+        pending_state_changed = true;
+    }
+
+    if ((pending_state_changed && (now - last_udp_telemetry >= 40)) || (now - last_udp_telemetry >= TELEMETRY_HEARTBEAT)) {
         last_udp_telemetry = now;
+        pending_state_changed = false;
         Send_Telemetry_To_PC();
     }
 }
@@ -806,6 +907,12 @@ void Master_Network_Loop() {
 void loop() {
     if (is_ap_mode) {
         server.handleClient();
+    }
+
+    static uint32_t last_wifi_reconnect = 0;
+    if (!is_ap_mode && WiFi.status() != WL_CONNECTED && (millis() - last_wifi_reconnect > 10000)) {
+        last_wifi_reconnect = millis();
+        WiFi.reconnect();
     }
 
     Master_Network_Loop();
