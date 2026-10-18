@@ -456,27 +456,49 @@ void Check_UDP_Commands() {
 void Send_Telemetry_To_PC() {
     if (WiFi.status() != WL_CONNECTED) return;
 
-    char udp_msg[1152];
+    char udp_msg[1536];
     float resistance = ((float)actual_pot_value / 255.0) * 10.0;
     float angle      = ((float)actual_pot_value / 255.0) * 270.0;
     int32_t rssi     = WiFi.RSSI();
 
+    uint8_t btn_raw         = (btn_last_gesture != 0x50) ? 1 : 0;
+    uint8_t led_actual_bool = (actual_led_mode > 0) ? 1 : 0;
+    uint8_t led_target_bool = (target_led_mode > 0) ? 1 : 0;
+    uint8_t buz_actual_bool = (actual_buz_state > 0) ? 1 : 0;
+    uint8_t buz_target_bool = (target_buz_state > 0) ? 1 : 0;
+
     snprintf(udp_msg, sizeof(udp_msg),
         "{"
           "\"timestamp\":%lu,"
-          "\"gateway\":{\"version\":\"V3_CENTRAL_INTEL\",\"wifi_rssi\":%d,\"uptime_s\":%lu},"
+          "\"gateway\":{\"device_id\":\"NEURON_GW_V3\",\"version\":\"V3_CENTRAL_INTEL\",\"wifi_rssi\":%d,\"uptime_s\":%lu},"
           "\"network_topology\":{"
-            "\"led_node\":%d,\"button_node\":%d,\"buzzer_node\":%d,\"pot_node\":%d,"
-            "\"dist_node\":%d,\"lcd_node\":%d,\"motor_node\":%d,\"servo_node\":%d,"
-            "\"oled_node\":%d,\"soil_node\":%d,\"dht11_node\":%d,\"dht22_node\":%d"
+            "\"led_node\":{\"online\":%d,\"timeout_cnt\":0},"
+            "\"button_node\":{\"online\":%d,\"timeout_cnt\":0},"
+            "\"buzzer_node\":{\"online\":%d,\"timeout_cnt\":0},"
+            "\"pot_node\":{\"online\":%d,\"timeout_cnt\":0},"
+            "\"distance_node\":{\"online\":%d,\"timeout_cnt\":0},"
+            "\"dist_node\":{\"online\":%d,\"timeout_cnt\":0},"
+            "\"lcd_node\":{\"online\":%d,\"timeout_cnt\":0},"
+            "\"motor_node\":{\"online\":%d,\"timeout_cnt\":0},"
+            "\"servo_node\":{\"online\":%d,\"timeout_cnt\":0},"
+            "\"oled_node\":{\"online\":%d,\"timeout_cnt\":0},"
+            "\"soil_node\":{\"online\":%d,\"timeout_cnt\":0},"
+            "\"dht11_node\":{\"online\":%d,\"timeout_cnt\":0},"
+            "\"dht22_node\":{\"online\":%d,\"timeout_cnt\":0}"
           "},"
           "\"telemetry\":{"
-            "\"button\":{\"gesture\":\"%s\",\"raw_code\":\"0x%02X\",\"single_clicks\":%lu,\"double_clicks\":%lu,\"long_presses\":%lu,\"total\":%lu},"
+            "\"button\":{\"raw_state\":%d,\"press_count\":%lu,\"gesture\":\"%s\",\"raw_code\":\"0x%02X\",\"single_clicks\":%lu,\"double_clicks\":%lu,\"long_presses\":%lu,\"total\":%lu},"
             "\"potentiometer\":{\"raw_adc\":%d,\"resistance_kohm\":%.2f,\"mapped_angle_deg\":%.1f},"
             "\"distance\":{\"distance_cm\":%d},"
             "\"soil_moisture\":{\"moisture_pct\":%d,\"raw_adc\":%d,\"dry_alert\":%d},"
             "\"dht11\":{\"temperature_c\":%d,\"humidity_pct\":%d,\"status\":%d},"
             "\"dht22\":{\"temperature_c\":%.1f,\"humidity_pct\":%.1f,\"status\":%d}"
+          "},"
+          "\"control_state\":{"
+            "\"led\":{\"target\":%d,\"actual\":%d},"
+            "\"buzzer\":{\"target\":%d,\"actual\":%d},"
+            "\"motor\":{\"dir\":%d,\"speed\":%d},"
+            "\"servo\":{\"angle\":%d}"
           "},"
           "\"actuators\":{"
             "\"led_mode\":%d,\"buzzer\":%d,\"motor\":{\"dir\":%d,\"speed\":%d},\"servo_angle\":%d"
@@ -485,14 +507,18 @@ void Send_Telemetry_To_PC() {
         millis(),
         rssi, millis() / 1000,
         online_led, online_btn, online_buz, online_pot,
-        online_dist, online_lcd, online_motor, online_servo,
+        online_dist, online_dist, online_lcd, online_motor, online_servo,
         online_oled, online_soil, online_dht11, online_dht22,
-        btn_gesture_str.c_str(), btn_last_gesture, btn_single_count, btn_double_count, btn_long_count, btn_total_count,
+        btn_raw, btn_total_count, btn_gesture_str.c_str(), btn_last_gesture, btn_single_count, btn_double_count, btn_long_count, btn_total_count,
         actual_pot_value, resistance, angle,
         actual_dist_cm,
         soil_moisture_pct, soil_raw_adc, soil_do_state,
         dht11_temp, dht11_humi, dht11_status,
         (float)dht22_temp_int + ((float)dht22_temp_dec / 10.0), (float)dht22_humi_int + ((float)dht22_humi_dec / 10.0), dht22_status,
+        led_target_bool, led_actual_bool,
+        buz_target_bool, buz_actual_bool,
+        motor_dir, motor_speed,
+        servo_angle,
         target_led_mode, target_buz_state, motor_dir, motor_speed, servo_angle
     );
 

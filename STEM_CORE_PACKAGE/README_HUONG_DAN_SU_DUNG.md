@@ -54,7 +54,9 @@ STEM_CORE_PACKAGE/
 ## ⚡ HƯỚNG DẪN NẠP FIRMWARE
 
 ### 1. Nạp cho ESP32 Gateway:
-1. Mở file `01_ESP32_GATEWAY_FIRMWARE/ESP_gateway_v2.ino` bằng **Arduino IDE**.
+1. Mở file firmware bằng **Arduino IDE**:
+   - **Phiên bản V3 mới nhất (Khuyên dùng):** Mở thư mục `01_ESP32_GATEWAY_FIRMWARE/ESP_gateway_v3/ESP_gateway_v3.ino` (hỗ trợ trọn vẹn 12 Slaves và Adaptive Multi-Rate Polling siêu nhanh 20ms).
+   - **Phiên bản V2 cũ:** `01_ESP32_GATEWAY_FIRMWARE/ESP_gateway_v2.ino` (hỗ trợ 5 node cơ bản).
 2. Chọn Board: **ESP32 Dev Module** (hoặc ESP32-WROOM-32).
 3. Bấm **Upload** lên mạch ESP32.
 4. *Lưu ý cấu hình WiFi:*
@@ -172,6 +174,7 @@ Bất kỳ ứng dụng nào (Web, Node.js, Python, C#, Flutter) chỉ cần gia
 | **`"LED_BREATHE"`** | Hiệu ứng đèn thở sáng dần / tối dần Sine/Triangle tự trị (Node 1 Smart) |
 | **`"LED_SOS"`** | Hiệu ứng nhấp nháy mã cầu cứu SOS quốc tế (... --- ...) (Node 1 Smart) |
 | **`"LED_DOUBLE_FLASH"`** | Hiệu ứng nháy đôi chớp giật Strobe (Node 1 Smart) |
+| **`"LED_HEARTBEAT"`** | Hiệu ứng nhịp đập trái tim nháy kép mượt (Node 1 Smart) |
 | **`"LED_PWM:<0-100>"`** | Điều chỉnh độ sáng LED trực tiếp từ 0% đến 100% |
 | **`"BTN_GET_COUNTER"`** | Đọc số lần bấm tích lũy từ Node 2 Smart Button (0x54) |
 | **`"BTN_RESET_COUNTER"`** | Đặt lại bộ đếm số lần bấm về 0 (Node 2 Smart Button) |
