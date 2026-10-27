@@ -423,20 +423,31 @@ void Check_UDP_Commands() {
         }
         else if (cmd.startsWith("MOTOR_FWD:")) {
             int spd = cmd.substring(10).toInt();
-            if (spd < 1) spd = 1; if (spd > 100) spd = 100;
-            motor_dir = 1; motor_speed = (uint8_t)spd;
-            Queue_Command(ID_MOTOR, (uint8_t)spd);
+            if (spd <= 0) {
+                motor_dir = 0; motor_speed = 0;
+                Queue_Command(ID_MOTOR, 0x00);
+            } else {
+                if (spd > 100) spd = 100;
+                motor_dir = 1; motor_speed = (uint8_t)spd;
+                Queue_Command(ID_MOTOR, (uint8_t)spd);
+            }
         }
         else if (cmd.startsWith("MOTOR_REV:")) {
             int spd = cmd.substring(10).toInt();
-            if (spd < 1) spd = 1; if (spd > 100) spd = 100;
-            motor_dir = 2; motor_speed = (uint8_t)spd;
-            Queue_Command(ID_MOTOR, (uint8_t)(0x80 + spd));
+            if (spd <= 0) {
+                motor_dir = 0; motor_speed = 0;
+                Queue_Command(ID_MOTOR, 0x00);
+            } else {
+                if (spd > 100) spd = 100;
+                motor_dir = 2; motor_speed = (uint8_t)spd;
+                Queue_Command(ID_MOTOR, (uint8_t)(0x80 + spd));
+            }
         }
 
         // --- ĐIỀU KHIỂN SERVO RC (SLAVE 8) ---
-        else if (cmd.startsWith("SERVO_ANGLE:")) {
-            int ang = cmd.substring(12).toInt();
+        else if (cmd.startsWith("SERVO_ANGLE:") || cmd.startsWith("SERVO:")) {
+            int colon = cmd.indexOf(':');
+            int ang = cmd.substring(colon + 1).toInt();
             if (ang < 0) ang = 0; if (ang > 180) ang = 180;
             servo_angle = (uint8_t)ang;
             Queue_Command(ID_SERVO, (uint8_t)ang);
@@ -453,7 +464,7 @@ void Check_UDP_Commands() {
             Queue_Text_Command(ID_LCD, 0x12, cmd.substring(5).c_str());
         }
         else if (cmd.equals("LCD_CLEAR")) {
-            Queue_Command(ID_LCD, 0x82);
+            Queue_Command(ID_LCD, 0x01);
         }
 
         // --- ĐIỀU KHIỂN MÀN HÌNH OLED 0.96" (SLAVE 9) ---
@@ -679,6 +690,16 @@ void setup() {
     NEURON_SERIAL.begin(9600, SERIAL_8N1, RX_PIN, TX_PIN);
     pinMode(STATUS_LED_PIN, OUTPUT);
     digitalWrite(STATUS_LED_PIN, LOW);
+
+    // Initial probe for Tier 2 nodes (LED, Buzzer) to detect presence at startup
+    uint8_t probe_ack = 0;
+    if (Send_Query_Dual_Frame(ID_LED, 0x70, &probe_ack, 25)) {
+        online_led = 1;
+    }
+    delay(2);
+    if (Send_Query_Dual_Frame(ID_BUZZER, 0x41, &probe_ack, 25)) {
+        online_buz = 1;
+    }
 }
 
 // ==========================================
@@ -704,6 +725,8 @@ void Master_Network_Loop() {
             Send_Text_Frame_20B(p.target_id, p.text_line_cmd, p.text_buf);
             if (p.target_id == ID_LCD)  online_lcd = 1;
             if (p.target_id == ID_OLED) online_oled = 1;
+            state_changed = true;
+            delay(15); // Nghỉ 15ms đảm bảo node hiển thị (LCD/OLED) vẽ xong trang I2C trước khi nhận khung kế
         } else {
             uint8_t ack_res = 0;
             if (Send_Query_Dual_Frame(p.target_id, p.cmd_data, &ack_res, 25)) {
@@ -719,6 +742,7 @@ void Master_Network_Loop() {
                 if (p.target_id == ID_SERVO) online_servo = 1;
                 if (p.target_id == ID_LCD)   online_lcd = 1;
                 if (p.target_id == ID_OLED)  online_oled = 1;
+                state_changed = true;
             }
         }
         delay(2); // Khoảng nghỉ xả đệm vòng Ring
@@ -804,7 +828,7 @@ void Master_Network_Loop() {
         if (now - last_dist_poll >= dist_interval) {
             last_dist_poll = now;
             uint8_t dist_res = 0;
-            if (Send_Query_Dual_Frame(ID_DISTANCE, 0x70, &dist_res, 40)) {
+            if (Send_Query_Dual_Frame(ID_DISTANCE, 0x70, &dist_res, 48)) {
                 online_dist = 1; timeout_dist = 0;
                 actual_dist_cm = dist_res;
                 if (abs(actual_dist_cm - last_dist_cm) >= 2) {

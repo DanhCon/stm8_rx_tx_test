@@ -1,0 +1,12 @@
+;	STMicroelectronics Workspace file
+
+[Version]
+Keyword=ST7Workspace-V0.7
+
+[Project0]
+Filename=slave_4_bien_tro.stp
+Dependencies=
+[Options]
+ActiveProject=slave_4_bien_tro
+ActiveConfig=Debug
+AddSortedElements=1

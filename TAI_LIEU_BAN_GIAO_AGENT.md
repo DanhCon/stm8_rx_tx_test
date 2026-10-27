@@ -109,7 +109,7 @@ $$\text{Khung truyền} = [\text{0xAA}, \text{SLAVE\_ID}, \text{CMD / DATA}, \te
 | `0x03` (Buzzer) | `0x40`<br>`0x41`<br>`0x42` | Bật còi (ON)<br>Tắt còi (OFF)<br>Kêu Beep 1 tiếng | `0x40`<br>`0x41`<br>`0x42` | Trả lại chính mã lệnh để xác nhận thực thi (ACK). |
 | `0x04` (Pot) | `0x60` | Truy vấn giá trị biến trở | `0x00` - `0xFF` | Giá trị ADC 8-bit (`0` đến `255`). |
 | `0x05` (Dist) | `0x70` (hoặc `0x40`) | Truy vấn khoảng cách | `0x00` - `0xFE`<br>`0xFF` (`255`) | Khoảng cách đo được tính theo cm.<br>`255`: Quá tầm đo hoặc mất sóng dội. |
-| `0x06` (LCD) | `0x80`<br>`0x81`<br>`0x82` | Bật đèn nền<br>Tắt đèn nền<br>Xóa màn hình | `0x80`<br>`0x81`<br>`0x82` | Xác nhận thực thi lệnh LCD. |
+| `0x06` (LCD) | `0x01` (hoặc `0x82`)<br>`0x10`<br>`0x80`-`0xE4` | Xóa màn hình (Clear)<br>Hiện chữ mẫu SYSTEM READY<br>Độ sáng 0-100% | `0x01` / `0x82`<br>`0x10`<br>`0x80`-`0xE4` | Xác nhận thực thi lệnh LCD. |
 | `0x07` (DC Motor) | `0x00` / `0x30`<br>`0x01` - `0x64`<br>`0x81` - `0xE4`<br>`0xFF` | Dừng motor (STOP)<br>Tiến tốc độ 1-100%<br>Lùi tốc độ 1-100%<br>Phanh nhanh (BRAKE) | `0x00`<br>`0x01` - `0x64`<br>`0x81` - `0xE4`<br>`0xFF` | Trả lại tốc độ / trạng thái xác nhận. |
 | `0x08` (Servo) | `0` - `180` (`0x00`-`0xB4`)<br>`0xC0` / `0xC1` / `0xC2` | Đặt góc quay 0° - 180°<br>Góc 0° / 90° / 180° | `0` - `180` | Trả lại góc hiện tại của Servo. |
 | `0x09` (OLED) | `0x80` / `0x81` / `0x82`<br>`0x83` / `0x84`<br>`0x10`-`0x13` (Font 8x16)<br>`0x20`-`0x27` (Font 6x8) | ON / OFF / CLEAR<br>Đảo màu / Hiện Logo Splash<br>Ghi dòng 0-3 chữ to (20B frame)<br>Ghi dòng 0-7 chữ nhỏ (20B frame) | `0x80` - `0x84`<br>`0x10` - `0x13`<br>`0x20` - `0x27` | Xác nhận mã lệnh vừa thực thi. |
@@ -434,8 +434,16 @@ Khi người dùng yêu cầu nâng cấp hệ thống trong tương lai, các t
   - `0x55`: Reset bộ đếm lần nhấn về 0.
 - **Phản hồi LED PC3 trực tiếp:** Nháy 1 lần khi Nhấn đơn, nháy 2 lần nhanh khi Nhấn đúp, sáng 300ms khi đạt ngưỡng Nhấn giữ.
 
+### 10.4. Cấu hình ST Visual Develop Workspace (.stw / .stp) và Quy chuẩn File nạp Cosmic C (.s19 / .hex)
+- **Quy tắc định dạng đầu ra của Cosmic C (`chex`):**
+  - `chex -o <target>.s19 <target>.sm8` -> Tạo file Motorola S-Record (`S0...`, `S1...`). STVP mở được ngay.
+  - `chex -fi -o <target>.hex <target>.sm8` -> Tạo file Intel HEX (`:20...`).
+  - *Lưu ý sống còn:* Không được tráo cờ `-fi`, nếu xuất nhầm định dạng Intel HEX vào đuôi `.s19`, STVP sẽ từ chối nạp chip.
+- **Dự án STVD hoàn chỉnh cho 15/15 module Slave:**
+  Tất cả các thư mục slave trong mã nguồn gốc và trong [`STEM_CORE_PACKAGE/03_STM8_SOURCE_CODE_C`](file:///F:/stm8_rx_tx_test/STEM_CORE_PACKAGE/03_STM8_SOURCE_CODE_C) đều có đầy đủ tệp `.stw` (Workspace), `.stp` (Project), và `build.bat` một chạm, cho phép click đúp chuột mở trực tiếp trên ST Visual Develop hoặc chạy `build.bat` tự động.
+
 ---
-> **Tài liệu hoàn thành ngày:** 15/10/2026  
+> **Tài liệu cập nhật ngày:** 20/10/2026  
 > **Tác giả:** Antigravity AI Engineering Team  
 > **Trạng thái:** Sẵn sàng cho mọi Agent tiếp quản vận hành và phát triển tiếp!
 

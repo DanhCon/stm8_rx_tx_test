@@ -60,7 +60,7 @@ void delay_ms(unsigned int ms) {
 
 static void i2c_delay(void) {
     volatile unsigned char d;
-    for(d = 0; d < 8; d++);
+    for(d = 0; d < 3; d++);
 }
 
 /* =========================================================
@@ -238,86 +238,90 @@ void OLED_Init(void) {
     OLED_Clear();
 }
 
-/* In chuỗi văn bản Font 6x8 (line 0-7, col 0-127) */
+/* In chuỗi văn bản Font 6x8 (line 0-7, tối đa 21 ký tự = 126 pixel + 2 pixel đệm)
+   Tối ưu hóa Burst Streaming: Chỉ Start/Stop I2C đúng 1 lần cho cả dòng */
 void OLED_PrintStr6x8(unsigned char line, unsigned char col, const char* str) {
-    unsigned char idx;
+    unsigned char i;
     unsigned char b;
     unsigned char c;
+    unsigned char len;
 
     if (line > 7) line = 7;
+
+    len = 0;
+    while(str[len] != '\0' && len < 21) {
+        len++;
+    }
+
     OLED_SetCursor(line, col);
 
-    idx = 0;
-    while(str[idx] != '\0' && (col + 6) <= 128) {
-        c = (unsigned char)str[idx];
+    I2C_Start();
+    I2C_WriteByte(oled_i2c_addr);
+    I2C_WriteByte(0x40); /* Control byte: Data stream */
+    for(i = 0; i < 21; i++) {
+        c = (i < len) ? (unsigned char)str[i] : ' ';
         if (c < 32 || c > 126) c = ' ';
 
-        I2C_Start();
-        I2C_WriteByte(oled_i2c_addr);
-        I2C_WriteByte(0x40);
         for(b = 0; b < 5; b++) {
             I2C_WriteByte(font_6x8[c - 32][b]);
         }
-        I2C_WriteByte(0x00); /* 1 byte đệm trống tạo khoảng cách chữ */
-        I2C_Stop();
-
-        col += 6;
-        idx++;
+        I2C_WriteByte(0x00); /* 1 cột trống ngăn cách giữa 2 ký tự */
     }
+    I2C_WriteByte(0x00); /* 2 pixel đệm cuối trang để đủ 128 pixel */
+    I2C_WriteByte(0x00);
+    I2C_Stop();
 }
 
-/* In chuỗi văn bản Font 8x16 (line 0-3, col 0-127) */
+/* In chuỗi văn bản Font 8x16 (line 0-3, tối đa 16 ký tự = 128 pixel toàn màn hình)
+   Tối ưu hóa Burst Streaming: Chỉ Start/Stop I2C đúng 1 lần cho nửa trên và 1 lần cho nửa dưới.
+   Tự động xóa sạch khoảng trống đuôi dòng nếu chuỗi ngắn hơn 16 ký tự. */
 void OLED_PrintStr8x16(unsigned char line, unsigned char col, const char* str) {
-    unsigned char idx;
+    unsigned char i;
     unsigned char b;
     unsigned char c;
     unsigned char top_page;
     unsigned char bot_page;
-    unsigned char cur_col;
+    unsigned char len;
 
     if (line > 3) line = 3;
     top_page = line * 2;
     bot_page = top_page + 1;
 
-    /* In nửa trên (Page N) */
+    /* Xác định độ dài chuỗi (tối đa 16 ký tự) */
+    len = 0;
+    while(str[len] != '\0' && len < 16) {
+        len++;
+    }
+
+    /* 1. In nửa trên (Page top_page) - Burst stream liên tục 128 byte */
     OLED_SetCursor(top_page, col);
-    idx = 0;
-    cur_col = col;
-    while(str[idx] != '\0' && (cur_col + 8) <= 128) {
-        c = (unsigned char)str[idx];
+    I2C_Start();
+    I2C_WriteByte(oled_i2c_addr);
+    I2C_WriteByte(0x40); /* Control byte: Data stream */
+    for(i = 0; i < 16; i++) {
+        c = (i < len) ? (unsigned char)str[i] : ' ';
         if (c < 32 || c > 126) c = ' ';
 
-        I2C_Start();
-        I2C_WriteByte(oled_i2c_addr);
-        I2C_WriteByte(0x40);
         for(b = 0; b < 8; b++) {
             I2C_WriteByte(font_8x16[c - 32][b]);
         }
-        I2C_Stop();
-
-        cur_col += 8;
-        idx++;
     }
+    I2C_Stop();
 
-    /* In nửa dưới (Page N+1) */
+    /* 2. In nửa dưới (Page bot_page) - Burst stream liên tục 128 byte */
     OLED_SetCursor(bot_page, col);
-    idx = 0;
-    cur_col = col;
-    while(str[idx] != '\0' && (cur_col + 8) <= 128) {
-        c = (unsigned char)str[idx];
+    I2C_Start();
+    I2C_WriteByte(oled_i2c_addr);
+    I2C_WriteByte(0x40); /* Control byte: Data stream */
+    for(i = 0; i < 16; i++) {
+        c = (i < len) ? (unsigned char)str[i] : ' ';
         if (c < 32 || c > 126) c = ' ';
 
-        I2C_Start();
-        I2C_WriteByte(oled_i2c_addr);
-        I2C_WriteByte(0x40);
         for(b = 8; b < 16; b++) {
             I2C_WriteByte(font_8x16[c - 32][b]);
         }
-        I2C_Stop();
-
-        cur_col += 8;
-        idx++;
     }
+    I2C_Stop();
 }
 
 /* Hiển thị màn hình chào mừng FabLab STEM ban đầu */

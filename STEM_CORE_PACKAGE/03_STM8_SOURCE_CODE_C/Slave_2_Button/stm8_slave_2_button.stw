@@ -1,0 +1,12 @@
+;	STMicroelectronics Workspace file
+
+[Version]
+Keyword=ST7Workspace-V0.7
+
+[Project0]
+Filename=slave_2_button.stp
+Dependencies=
+[Options]
+ActiveProject=slave_2_button
+ActiveConfig=Debug
+AddSortedElements=1

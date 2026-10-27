@@ -1,0 +1,12 @@
+;	STMicroelectronics Workspace file
+
+[Version]
+Keyword=ST7Workspace-V0.7
+
+[Project0]
+Filename=slave_9_oled.stp
+Dependencies=
+[Options]
+ActiveProject=slave_9_oled
+ActiveConfig=Debug
+AddSortedElements=1

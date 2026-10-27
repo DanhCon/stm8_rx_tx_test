@@ -38,6 +38,7 @@ class NeuronGatewayService:
         self._connected_device_id: str | None = None
 
         # Cấu hình Khóa thiết bị mục tiêu (Device Pairing Lock)
+        self._auto_locked: bool = False
         if target_device_id:
             self._target_device_id: str | None = target_device_id.strip()
         else:
@@ -98,6 +99,7 @@ class NeuronGatewayService:
         Gói tin từ các bộ kit khác (NHOM_02, NHOM_03) sẽ bị loại bỏ hoàn toàn.
         """
         new_id = device_id.strip() if device_id else None
+        self._auto_locked = False
         if new_id != self._target_device_id:
             self._target_device_id = new_id
             self._connected = False
@@ -105,12 +107,15 @@ class NeuronGatewayService:
             self._connected_device_id = None
             logger.info("[NeuronGW] Set target device: %s", new_id)
 
-            if save_to_disk and new_id:
+            if save_to_disk:
                 try:
-                    with open("target_device.json", "w", encoding="utf-8") as f:
-                        json.dump({"target_device_id": new_id}, f, indent=2)
+                    if new_id:
+                        with open("target_device.json", "w", encoding="utf-8") as f:
+                            json.dump({"target_device_id": new_id}, f, indent=2)
+                    elif os.path.exists("target_device.json"):
+                        os.remove("target_device.json")
                 except Exception as e:
-                    logger.warning("[NeuronGW] Could not save target_device.json: %s", e)
+                    logger.warning("[NeuronGW] Could not update target_device.json: %s", e)
 
     def get_discovered_devices(self) -> dict[str, dict]:
         """Trả về danh sách tất cả các bộ kit nhìn thấy trên mạng WiFi"""
@@ -210,6 +215,9 @@ class NeuronGatewayService:
         speed_pct: Tốc độ 1 - 100%
         """
         d = direction.upper()
+        if int(speed_pct) <= 0 or d in ("STOP", "DUNG"):
+            self._send("MOTOR_STOP")
+            return
         spd = max(1, min(100, int(speed_pct)))
         if d in ("FWD", "FORWARD", "TIEN"):
             self._send(f"MOTOR_FWD:{spd}")
@@ -345,6 +353,7 @@ class NeuronGatewayService:
         else:
             # Nếu chưa chỉ định, tự động khóa vào bộ kit đầu tiên gửi dữ liệu đến
             self._target_device_id = dev_id
+            self._auto_locked = True
             logger.info("[NeuronGW] Auto-locked to first seen kit: %s (%s)", dev_id, ip)
 
         was_connected = self._connected
@@ -374,9 +383,12 @@ class NeuronGatewayService:
                 node_val = topology.get("dist_node")
 
             if isinstance(node_val, dict):
-                self._node_online[node] = (node_val.get("online", 0) == 1)
-            elif isinstance(node_val, (int, bool)):
-                self._node_online[node] = (node_val == 1) or (node_val is True)
+                val = node_val.get("online", 0)
+                self._node_online[node] = str(val).strip().lower() in ("1", "true")
+            elif node_val is not None:
+                self._node_online[node] = str(node_val).strip().lower() in ("1", "true")
+            else:
+                self._node_online[node] = False
 
         if self.on_telemetry:
             self.on_telemetry(data)
@@ -388,5 +400,9 @@ class NeuronGatewayService:
                 self._esp32_ip  = None
                 logger.info("[NeuronGW] Kit [%s] DISCONNECTED (timeout)", self._connected_device_id)
                 self._connected_device_id = None
+                if self._auto_locked:
+                    self._target_device_id = None
+                    self._auto_locked = False
+                    logger.info("[NeuronGW] Released auto-lock on disconnect")
                 if self.on_disconnected:
                     self.on_disconnected()

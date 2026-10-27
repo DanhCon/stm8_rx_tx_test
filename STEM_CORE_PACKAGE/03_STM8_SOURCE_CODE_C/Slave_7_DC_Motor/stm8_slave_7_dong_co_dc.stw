@@ -1,0 +1,12 @@
+;	STMicroelectronics Workspace file
+
+[Version]
+Keyword=ST7Workspace-V0.7
+
+[Project0]
+Filename=slave_7_dc.stp
+Dependencies=
+[Options]
+ActiveProject=slave_7_dc
+ActiveConfig=Debug
+AddSortedElements=1

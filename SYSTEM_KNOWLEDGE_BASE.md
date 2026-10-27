@@ -79,7 +79,7 @@ Tất cả các Slave STM8 **PHẢI** cấu hình ngắt nhận UART1 (`UART1_RX
 | **Slave 3** | Còi báo | `0x03` | PC5 (Output) | `0x40`: ON<br>`0x41`: OFF<br>`0x42`: Beep | Trả lại mã lệnh vừa thực hiện |
 | **Slave 4** | Biến trở | `0x04` | PD3 (ADC Ch 4 / AIN4) | `0x60`: Hỏi giá trị | Giá trị ADC 8-bit (`0` đến `255`) |
 | **Slave 5** | Siêu âm | `0x05` | PA1: Echo<br>PA2: Trig<br>PC3: LED | `0x70`: Hỏi khoảng cách (hoặc `0x40`) | Khoảng cách (`0` đến `255` cm) |
-| **Slave 6** | Màn LCD 1602 | `0x06` | PB4: SCL<br>PB5: SDA | `0x80`: Backlight ON<br>`0x81`: Backlight OFF<br>`0x82`: Clear | Xác nhận lệnh thực hiện |
+| **Slave 6** | Màn LCD 1602 | `0x06` | PB4: SCL<br>PB5: SDA | `0x01`: Xóa màn hình (hoặc `0x82`)<br>`0x10`: Hiện chữ mẫu<br>`0x80`-`0xE4`: Độ sáng 0-100% | Xác nhận lệnh thực hiện |
 
 ---
 
@@ -165,6 +165,50 @@ Tất cả các Slave STM8 **PHẢI** cấu hình ngắt nhận UART1 (`UART1_RX
 - **Nguyên nhân**: Cosmic C tuân theo chuẩn C89 nghiêm ngặt. **Tất cả các biến phải được khai báo ở đầu khối lệnh (`{ ... }`), không được khai báo xen kẽ sau các câu lệnh thực thi.**
 - **Cách sửa**: Đưa toàn bộ khai báo biến lên dòng đầu tiên của hàm hoặc block.
 
+### 🔴 Lỗi 7: Tráo đổi định dạng file nạp .s19 và .hex của Cosmic C (chex)
+- **Hiện tượng**: Mở file `.s19` (ví dụ OLED Slave 9, DC Motor Slave 7, Servo Slave 8, Soil Slave 10) trong **ST Visual Programmer (STVP)** bị báo lỗi `Invalid format / File error / Checksum mismatch`.
+- **Nguyên nhân gốc rễ**: Lệnh tiện ích `chex` của bộ Cosmic C có quy ước:
+  - `chex -o file.s19 file.sm8` -> Tạo file **Motorola S-Record** (bắt đầu bằng ký tự `S0...`, `S1...`).
+  - `chex -fi -o file.hex file.sm8` -> Tham số `-fi` (format intel) tạo file **Intel HEX** (bắt đầu bằng dấu hai chấm `:20...`).
+  Khi viết lệnh nhầm `-fi -o file.s19`, file có đuôi `.s19` nhưng bên trong lại là nội dung Intel HEX, khiến STVP không thể nhận diện được.
+- **Cách sửa & Quy tắc bất biến**:
+  Luôn dùng đúng 2 dòng lệnh chuẩn trong `build.bat` và STVD Post-Build:
+  ```bat
+  "%COSMIC_DIR%\chex.exe" -o Debug\<target>.s19 Debug\<target>.sm8
+  "%COSMIC_DIR%\chex.exe" -fi -o Debug\<target>.hex Debug\<target>.sm8
+  ```
+
+### 🔴 Lỗi 8: Lỗi ký tự ẩn UTF-8 BOM (#error cpstm8 main.c:1 bad character)
+- **Hiện tượng**: Biên dịch bằng `cxstm8` báo lỗi cú pháp ngay tại dòng 1 ký tự 1 dù code hoàn toàn đúng.
+- **Nguyên nhân**: File mã nguồn `.c` hoặc `.h` bị lưu với định dạng **UTF-8 with BOM** (chứa 3 byte ẩn `0xEF 0xBB 0xBF` ở đầu file do PowerShell 5.1 `Set-Content -Encoding utf8`). Trình tiền xử lý `cpstm8` của Cosmic C chỉ chấp nhận UTF-8 **không có BOM (No BOM)** hoặc ANSI.
+- **Cách sửa**: Luôn lưu file C bằng chuẩn UTF-8 No BOM (`[System.Text.UTF8Encoding]::new($false)`).
+
+### 🔴 Lỗi 9: Màn hình OLED SSD1306 vẽ quá chậm (80ms/dòng) gây đè buffer ngắt
+- **Hiện tượng**: Gửi chuỗi chữ xuống màn hình OLED bị khựng giật, chậm trễ hoặc nếu gửi 2 dòng liên tiếp thì dòng 2 bị mất đuôi / đứt đoạn.
+- **Nguyên nhân gốc rễ**: 
+  1. Hàm in chuỗi cũ gọi `I2C_Start()` và `I2C_Stop()` cho từng ký tự (16 lần cho nửa trên + 16 lần cho nửa dưới = 32 phiên truyền I2C cho 1 dòng chữ 16 ký tự). Thời gian vẽ mất tới ~80ms.
+  2. Khi ESP32 phát tiếp Dòng 2 chỉ sau 2ms, STM8 vẫn đang bận vẽ Dòng 1, ngắt UART của Dòng 2 ập tới ghi đè lên bộ đệm `global_oled_buffer`.
+- **Cách sửa chuẩn**:
+  - Chuyển `OLED_PrintStr8x16` sang cơ chế **Burst Continuous Streaming**: Chỉ `I2C_Start()` đúng **1 lần** cho cả dòng 128 byte dữ liệu. Thời gian vẽ giảm 8 lần (từ 80ms xuống chỉ còn **~10ms**).
+  - Bổ sung `delay(15)` an toàn giữa các lệnh Text 20-byte trong hàng đợi Tier 2 của ESP32.
+
+### 🔴 Lỗi 10: Rác ký tự đuôi dòng trên màn hình OLED
+- **Hiện tượng**: In một chuỗi ngắn (ví dụ "BAT DAU" - 7 ký tự) nhưng trên màn hình vẫn còn lại các ký tự thừa của chuỗi in trước đó ở các cột phía sau.
+- **Nguyên nhân**: Hàm in cũ chỉ lặp đến khi gặp `\0` rồi dừng, không xóa trắng các cột pixel còn lại trên trang OLED (cột 56 đến 127).
+- **Cách sửa**: Trong hàm `OLED_PrintStr8x16`, luôn lặp đủ **16 ký tự** (128 pixel). Nếu chuỗi ngắn hơn 16 ký tự, tự động đệm ký tự khoảng trắng `' '` để xóa sạch 100% rác phía sau.
+
+### 🔴 Lỗi 11: Lỗi App 'BoardProxy' object has no attribute 'oled_clear'
+- **Hiện tượng**: Chạy code Python trong App báo lỗi `AttributeError: 'BoardProxy' object has no attribute 'oled_clear'`.
+- **Nguyên nhân**: Bộ hàm chuẩn trong sandbox Blockly của App từ đầu là `board.lcd_clear()` và `board.lcd_print_line()`. Khi người dùng gọi phương thức mới `board.oled_clear()` trên phiên bản App đang mở sẵn (chưa tải lại module từ đĩa) thì bị lỗi thuộc tính.
+- **Cách sửa**: 
+  - Khuyến nghị dùng bộ lệnh chuẩn gốc `board.lcd_clear()` và `board.lcd_print_line()` tương thích 100% mọi phiên bản.
+  - Đồng thời bổ sung các bí danh `oled_clear = lcd_clear`, `oled_print_line = lcd_print_line` vào cả mã nguồn `frontend/plugins` lẫn bản đóng gói `dist/FabLab STEM`.
+
+### 🔴 Lỗi 12: Xung đột mã lệnh LCD Clear (0x01 vs 0x82)
+- **Hiện tượng**: Gửi lệnh `LCD_CLEAR` từ App nhưng màn hình LCD 1602 (Slave 6) không chịu xóa.
+- **Nguyên nhân**: ESP32 gửi opcode `0x01`, nhưng firmware Slave 6 cũ chỉ bắt opcode `0x82`.
+- **Cách sửa**: Firmware Slave 6 bắt đồng thời cả 2 mã `if (cmd == 0x01 || cmd == 0x82) { LCD_Clear(); }`.
+
 ---
 
 ## 6. DANH MỤC CÁC SKETCH TEST ĐỘC LẬP (ESP32 TEST SUITE)
@@ -176,7 +220,77 @@ Trong thư mục `F:\stm8_rx_tx_test\ESP_TX_RX\`:
 4. `ESP_test_potentiometer`: Test riêng Slave 4 (Biến trở B10k trên PD3).
 5. `ESP_test_distance`: Test riêng Slave 5 (Khoảng cách HC-SR04 trên PA1/PA2).
 6. `ESP_gateway_v2/ESP_gateway_v2.ino`: Gateway chính thức tích hợp tất cả các Slave, Dual-Frame Verification, UDP Telemetry Heartbeat 100ms, Deadband abs >= 1, Fast-boot siêu âm 100ms.
-7. `ESP_nhat/esp_wifi/esp_wifi.ino`: Gateway gốc ban đầu (lưu trữ đối chiếu).
+7. `ESP_gateway_v3/ESP_gateway_v3.ino`: Gateway V3 tối ưu 3-Tier Polling, hỗ trợ trọn bộ 12 Slave, bảo vệ PC IP Unicast và định tuyến targeted ID.
+8. `ESP_nhat/esp_wifi/esp_wifi.ino`: Gateway gốc ban đầu (lưu trữ đối chiếu).
+
+---
+
+## 7. CẤU TRÚC DỰ ÁN STVD (.STW & .STP) CỦA TOÀN BỘ 15 SLAVE
+
+Tất cả các thư mục Slave (cả bản gốc và bản mới trong thư mục gốc cũng như trong `STEM_CORE_PACKAGE/03_STM8_SOURCE_CODE_C`) đều được trang bị đầy đủ:
+- **Tệp Workspace (`.stw`)**: Cho phép click đúp chuột mở trực tiếp dự án trong ST Visual Develop (STVD).
+- **Tệp Project (`.stp`)**: Cấu hình Toolset Cosmic C, cờ biên dịch C89, đường dẫn Linker script `.lkf`, bản đồ vector ngắt 32 entry tại `0x8000`, và 2 bước Post-Build xuất ra cả `.s19` lẫn `.hex`.
+- **Tệp `build.bat`**: Script biên dịch độc lập chỉ với 1 click chuột không cần mở IDE.
+- **Thư mục `Debug/`**: Chứa sẵn file đã biên dịch (`.sm8`, `.map`, `.s19`, `.hex`).
+
+| Module Slave | Tệp Workspace STVD (.stw) | Tệp Project STVD (.stp) | Linker Script (.lkf) |
+| :--- | :--- | :--- | :--- |
+| **Slave 1 (LED Basic)** | `Stm8_slave_1_den.stw` | `slave_1_den.stp` | `slave_1_den.lkf` |
+| **Slave 1 (LED PWM)** | `Stm8_slave_1_den.stw` | `slave_1_den.stp` | `slave_1_den.lkf` |
+| **Slave 1 (LED Smart)** | `stm8_slave_1_den_smart.stw` | `slave_1_smart.stp` | `slave_1_smart.lkf` |
+| **Slave 2 (Button)** | `stm8_slave_2_button.stw` | `slave_2_button.stp` | `slave_2_button.lkf` |
+| **Slave 2 (Button Smart)** | `stm8_slave_2_button_smart.stw` | `slave_2_smart.stp` | `slave_2_smart.lkf` |
+| **Slave 3 (Buzzer)** | `stm8_slave_3_coi.stw` | `slave_3_coi.stp` | `slave_3_coi.lkf` |
+| **Slave 4 (Potentiometer)** | `stm8_slave_4_bien_tro.stw` | `slave_4_bien_tro.stp` | `slave_4_bien_tro.lkf` |
+| **Slave 5 (Distance HC-SR04)** | `stm8_slave_5_khoang_cach.stw`| `stm8_slave_khoang_cach.stp` | `stm8_slave_khoang_cach.lkf` |
+| **Slave 6 (LCD 1602)** | `stm8_slave_6_lcd.stw` | `stm8_slave_khoang_cach.stp` | `stm8_slave_khoang_cach.lkf` |
+| **Slave 7 (DC Motor)** | `stm8_slave_7_dong_co_dc.stw` | `slave_7_dc.stp` | `slave_7_dc.lkf` |
+| **Slave 8 (Servo SG90)** | `stm8_slave_8_servo.stw` | `slave_8_servo.stp` | `slave_8_servo.lkf` |
+| **Slave 9 (OLED SSD1306)** | `stm8_slave_9_oled.stw` | `slave_9_oled.stp` | `slave_9_oled.lkf` |
+| **Slave 10 (Soil Moisture)**| `stm8_slave_10_do_am_dat.stw`| `slave_10_soil.stp` | `slave_10_soil.lkf` |
+| **Slave 11 (DHT11)** | `stm8_slave_11_dht11.stw` | `slave_11_dht11.stp` | `slave_11_dht11.lkf` |
+| **Slave 12 (DHT22)** | `stm8_slave_12_dht22.stw` | `slave_12_dht22.stp` | `slave_12_dht22.lkf` |
+
+---
+
+## 8. QUY TRÌNH & NGUYÊN TẮC VIẾT CODE C CHUẨN MỰC CHO STM8 (COSMIC C)
+
+### 8.1. Tuân thủ chuẩn C89 nghiêm ngặt
+1. **Khai báo biến ở đầu hàm / block:** Không khai báo biến sau câu lệnh thực thi.
+2. **Không dùng `//` comment nếu trình biên dịch chưa bật cờ C99:** Mặc dù `cxstm8 -pp` hỗ trợ `//`, tốt nhất nên dùng `/* ... */` cho các chú thích đa dòng hoặc đầu hàm.
+3. **Tuyệt đối không cấp phát động (`malloc / free`):** Chip STM8S103F3 chỉ có 1KB RAM (`0x0000 - 0x03FF`). Dùng mảng tĩnh (`static` hoặc toàn cục) với kích thước cố định.
+
+### 8.2. Mẫu ngắt phần cứng Hardware Repeater chuẩn
+Mọi slave trên vòng Ring bắt buộc phải có đoạn lặp phần cứng ở đầu ISR trước khi xử lý giao thức:
+```c
+@far @interrupt void UART1_RX_IRQHandler(void) {
+    unsigned char c = UART1_DR; // Đọc byte để xóa cờ ngắt RXNE
+
+    /* 1. Lặp tức thì sang TX cho node kế tiếp */
+    while (!(UART1_SR & 0x80)); // Chờ bộ đệm TXE sẵn sàng
+    UART1_DR = c;               // Đẩy byte ra vòng Ring
+
+    /* 2. Parser máy trạng thái (State Machine) */
+    ...
+}
+```
+
+### 8.3. Bảng vector ngắt chuẩn 32 Entry
+Bảng vector ngắt bắt buộc đặt tại `0x8000` với đúng 32 phần tử:
+- Phần tử 0: `_stext` (Reset vector tại `0x8000`)
+- Phần tử 1: `NonHandledInterrupt` (TRAP tại `0x8004`)
+- Phần tử 2 đến 19 (18 phần tử): `IRQ0` đến `IRQ17`
+- Phần tử 20: `UART1_RX_IRQHandler` (Chính xác tại `0x8050` - `IRQ18`)
+- Phần tử 21 đến 31 (11 phần tử): `IRQ19` đến `IRQ29`
+
+### 8.4. Cấu hình thanh ghi & Nhịp xung 16MHz
+```c
+CLK_CKDIVR = 0x00; // Bộ chia xung HSI = 1 -> Chạy tối đa 16MHz
+UART1_BRR2 = 0x03; // Ghi BRR2 TRƯỚC
+UART1_BRR1 = 0x68; // Ghi BRR1 SAU -> 9600 baud @ 16MHz
+UART1_CR2  = 0x2C; // Bật TEN, REN và ngắt RIEN
+_asm("rim");       // Cho phép ngắt toàn cục
+```
 
 ---
 

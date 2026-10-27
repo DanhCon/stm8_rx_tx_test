@@ -1,0 +1,12 @@
+;	STMicroelectronics Workspace file
+
+[Version]
+Keyword=ST7Workspace-V0.7
+
+[Project0]
+Filename=slave_12_dht22.stp
+Dependencies=
+[Options]
+ActiveProject=slave_12_dht22
+ActiveConfig=Debug
+AddSortedElements=1

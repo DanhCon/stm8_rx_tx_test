@@ -261,7 +261,7 @@ void main(void)
             UART_SendByte(ack_checksum);
 
             /* Cap nhat man hinh theo lenh */
-            if (cmd_to_execute == 0x01) 
+            if (cmd_to_execute == 0x01 || cmd_to_execute == 0x82) 
             {
                 LCD_Clear();
             }

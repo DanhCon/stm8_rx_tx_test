@@ -226,8 +226,12 @@ class TestNeuronGatewayDeviceLocking(unittest.TestCase):
         gw.send_motor("FWD", 150)
         self.assertEqual(sent_payloads[-1], ("@KIT_TEST_42:MOTOR_FWD:100", ("192.168.1.88", 8888)))
 
+        # Motor speed <= 0 triggers MOTOR_STOP
         gw.send_motor("REV", -5)
-        self.assertEqual(sent_payloads[-1], ("@KIT_TEST_42:MOTOR_REV:1", ("192.168.1.88", 8888)))
+        self.assertEqual(sent_payloads[-1], ("@KIT_TEST_42:MOTOR_STOP", ("192.168.1.88", 8888)))
+
+        gw.send_motor("REV", 50)
+        self.assertEqual(sent_payloads[-1], ("@KIT_TEST_42:MOTOR_REV:50", ("192.168.1.88", 8888)))
 
         # Servo angle clamping
         gw.send_servo(250)
@@ -275,6 +279,108 @@ class TestButtonStateDoubleCountPrevention(unittest.TestCase):
         snap = ElectroBlocksGatewayService.parse_telemetry(payload)
         self.assertTrue(snap.button_online)
         self.assertTrue(snap.button_pressed)
+
+
+class TestAutoLockLifecycle(unittest.TestCase):
+    def test_autolock_and_release_on_disconnect(self):
+        import json
+        from firmware.neuron_gateway_service import NeuronGatewayService, _DISCONNECT_TIMEOUT
+
+        gw = NeuronGatewayService(target_device_id=None)
+        self.assertIsNone(gw.target_device_id)
+
+        # Simulate packet from KIT_ALPHA
+        raw_pkt = json.dumps({
+            "gateway": {"device_id": "KIT_ALPHA"},
+            "network_topology": {},
+            "telemetry": {}
+        }).encode("utf-8")
+
+        gw._handle_packet(raw_pkt, ("192.168.1.100", 9999))
+        self.assertEqual(gw.target_device_id, "KIT_ALPHA")
+        self.assertTrue(gw._auto_locked)
+        self.assertTrue(gw.is_connected)
+
+        # Simulate timeout
+        import time
+        gw._last_packet_time = time.monotonic() - (_DISCONNECT_TIMEOUT + 1.0)
+        gw._check_timeout()
+
+        self.assertFalse(gw.is_connected)
+        self.assertIsNone(gw.target_device_id)
+        self.assertFalse(gw._auto_locked)
+
+    def test_manual_lock_not_released_on_disconnect(self):
+        import json
+        from firmware.neuron_gateway_service import NeuronGatewayService, _DISCONNECT_TIMEOUT
+
+        gw = NeuronGatewayService(target_device_id="MANUAL_KIT")
+        self.assertEqual(gw.target_device_id, "MANUAL_KIT")
+        self.assertFalse(gw._auto_locked)
+
+        raw_pkt = json.dumps({
+            "gateway": {"device_id": "MANUAL_KIT"},
+            "network_topology": {},
+            "telemetry": {}
+        }).encode("utf-8")
+
+        gw._handle_packet(raw_pkt, ("192.168.1.100", 9999))
+        self.assertTrue(gw.is_connected)
+
+        # Simulate timeout
+        import time
+        gw._last_packet_time = time.monotonic() - (_DISCONNECT_TIMEOUT + 1.0)
+        gw._check_timeout()
+
+        self.assertFalse(gw.is_connected)
+        # Target device ID MUST remain intact for manual lock
+        self.assertEqual(gw.target_device_id, "MANUAL_KIT")
+
+    def test_set_target_device_cleans_up_disk_file(self):
+        from firmware.neuron_gateway_service import NeuronGatewayService
+        gw = NeuronGatewayService(target_device_id="TEMP_LOCK")
+
+        # Save to disk
+        gw.set_target_device("SAVED_LOCK", save_to_disk=True)
+        self.assertTrue(os.path.exists("target_device.json"))
+
+        # Clear and save to disk -> file should be deleted
+        gw.set_target_device(None, save_to_disk=True)
+        self.assertFalse(os.path.exists("target_device.json"))
+
+
+class TestClimateAndEventCountTelemetry(unittest.TestCase):
+    def test_parse_telemetry_climate_and_event_count(self):
+        payload = {
+            "network_topology": {
+                "button_node": {"online": 1},
+                "soil_node": {"online": 1},
+                "dht11_node": {"online": 1},
+                "dht22_node": {"online": 1},
+            },
+            "telemetry": {
+                "button": {
+                    "raw_state": 0,
+                    "press_count": 14,
+                    "gesture": "SINGLE_CLICK",
+                    "total": 14
+                },
+                "soil_moisture": {"moisture_pct": 65},
+                "dht11": {"temperature_c": 28, "humidity_pct": 72},
+                "dht22": {"temperature_c": 28.4, "humidity_pct": 72.8},
+            }
+        }
+        snap = ElectroBlocksGatewayService.parse_telemetry(payload)
+        self.assertEqual(snap.button_event_count, 14)
+        self.assertFalse(snap.button_pressed)
+        self.assertTrue(snap.soil_online)
+        self.assertEqual(snap.soil_moisture_pct, 65)
+        self.assertTrue(snap.dht11_online)
+        self.assertEqual(snap.dht11_temp, 28)
+        self.assertEqual(snap.dht11_humidity, 72)
+        self.assertTrue(snap.dht22_online)
+        self.assertAlmostEqual(snap.dht22_temp, 28.4)
+        self.assertAlmostEqual(snap.dht22_humidity, 72.8)
 
 
 if __name__ == "__main__":
